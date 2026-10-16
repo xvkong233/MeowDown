@@ -1,14 +1,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
-using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,8 +21,9 @@ public class BBDownTApiServer
     private readonly SemaphoreSlim pendingTaskSignal = new(0);
     private int workerStarted;
     private readonly BBDownTServerOptions serverOptions;
-    private string apiToken = "";
-    private bool requireApiToken;
+    private readonly ServerRequestValidator requestValidator;
+    private readonly ServerAuth serverAuth;
+    private readonly TaskCallbackSender callbackSender;
 
     public BBDownTApiServer(BBDownTServerOptions? options = null)
     {
@@ -37,6 +33,9 @@ public class BBDownTApiServer
             DownloadRoot = Path.GetFullPath(Environment.ExpandEnvironmentVariables(configured.DownloadRoot))
         };
         taskStore = new DownloadTaskStore(options: serverOptions);
+        requestValidator = new ServerRequestValidator(serverOptions);
+        serverAuth = new ServerAuth();
+        callbackSender = new TaskCallbackSender(serverOptions);
     }
 
     public void SetUpServer()
@@ -52,7 +51,7 @@ public class BBDownTApiServer
             options.AddPolicy("BrowserClients",
                 policy =>
                 {
-                    policy.SetIsOriginAllowed(origin => requireApiToken || IsLoopbackOrigin(origin))
+                    policy.SetIsOriginAllowed(origin => serverAuth.requireApiToken || ServerAuth.IsLoopbackOrigin(origin))
                           .AllowAnyMethod()
                           .AllowAnyHeader();
                 });
@@ -61,17 +60,17 @@ public class BBDownTApiServer
         app.UseCors("BrowserClients");
         app.Use(async (context, next) =>
         {
-            if (!HasValidApiToken(context))
+            if (!serverAuth.HasValidApiToken(context))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 await context.Response.WriteAsync("Unauthorized");
                 return;
             }
-            if (!requireApiToken && !IsDirectLocalRequest(context.Request))
+            if (!serverAuth.requireApiToken && !ServerAuth.IsDirectLocalRequest(context.Request))
             {
                 context.Response.StatusCode = StatusCodes.Status403Forbidden;
                 context.Response.ContentType = "text/plain; charset=utf-8";
-                await context.Response.WriteAsync(TokenlessAccessMessage);
+                await context.Response.WriteAsync(ServerAuth.TokenlessAccessMessage);
                 return;
             }
             await next();
@@ -131,7 +130,7 @@ public class BBDownTApiServer
             Thread.Sleep(1);
             Environment.Exit(1);
         }
-        ConfigureApiToken(uriResult!, configuredApiToken);
+        serverAuth.ConfigureApiToken(uriResult!, configuredApiToken);
         EnsureQueueWorkerStarted();
         app.Run(url);
     }
@@ -172,7 +171,7 @@ public class BBDownTApiServer
             try
             {
                 var downloadTask = await AddDownloadTaskAsync(queuedTask);
-                _ = SendCallbackAsync(queuedTask.Request, downloadTask);
+                _ = callbackSender.SendCallbackAsync(queuedTask.Request, downloadTask);
             }
             catch (Exception e)
             {
@@ -181,337 +180,21 @@ public class BBDownTApiServer
         }
     }
 
-    private async Task SendCallbackAsync(ServeRequestOptions req, DownloadTask downloadTask)
-    {
-        if (string.IsNullOrEmpty(req.CallBackWebHook))
-        {
-            return;
-        }
-
-        try
-        {
-            var callbackUri = new Uri(req.CallBackWebHook, UriKind.Absolute);
-            using var dnsTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var addresses = await Dns.GetHostAddressesAsync(callbackUri.DnsSafeHost, dnsTimeout.Token);
-            if (addresses.Length == 0)
-            {
-                Logger.LogDebug("回调已拒绝: 目标没有可用地址");
-                return;
-            }
-            if (!serverOptions.AllowPrivateCallbacks && addresses.Any(IsPrivateOrReservedAddress))
-            {
-                Logger.LogDebug("回调已拒绝: 目标解析到本机、内网或保留地址");
-                return;
-            }
-
-            string? jsonContent = JsonSerializer.Serialize(downloadTask.CreateSnapshot(), AppJsonSerializerContext.Default.DownloadTask);
-            using var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-            using var callbackHttpClient = CreatePinnedCallbackHttpClient(addresses[0]);
-            using var response = await callbackHttpClient.PostAsync(callbackUri, content);
-            response.EnsureSuccessStatusCode();
-        }
-        catch (Exception e)
-        {
-            Logger.LogDebug("回调失败: {0}", e.Message);
-        }
-    }
-
     internal string? ValidateAndNormalizeServerRequest(ServeRequestOptions req)
-    {
-        req.RestrictedOutputRoot = null;
-        if (string.IsNullOrWhiteSpace(req.Url))
-        {
-            return "Url不能为空";
-        }
-
-        req.Url = req.Url.Trim();
-        var url = req.Url;
-        if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !BBDownTUtil.IsBilibiliUrl(url))
-        {
-            return "Url只能是B站链接或av/BV/ep/ss等编号";
-        }
-
-        if (!string.IsNullOrWhiteSpace(req.FFmpegPath) || !string.IsNullOrWhiteSpace(req.Mp4boxPath)
-            || !string.IsNullOrWhiteSpace(req.Aria2cPath))
-        {
-            return "服务器任务不能指定FFmpegPath、Mp4boxPath或Aria2cPath，请在服务器上安装这些程序或放到BBDownT程序目录";
-        }
-
-        if (UsesLegacyOption(req))
-        {
-            return "服务器任务不支持旧版兼容参数Aria2cProxy、OnlyHevc、OnlyAvc、OnlyAv1、AddDfnSubfix、NoPaddingPageNum、BandwithAscending，请改用对应的新参数";
-        }
-
-        var optionValidation = Program.ValidateWorkOptions(req);
-        if (optionValidation is not null) return optionValidation;
-        if (req.Interactive && !req.OnlyShowInfo)
-            return "服务器任务不支持交互选择，请使用语言、AI策略及音视频筛选参数。";
-
-        if (!serverOptions.AllowAria2cArgs && !string.IsNullOrWhiteSpace(req.Aria2cArgs))
-        {
-            return "服务器默认不允许传入Aria2cArgs，如确需使用请启动时配置 --server-allow-aria2c-args";
-        }
-
-        if (!serverOptions.AllowCustomNetworkHosts && HasCustomNetworkHost(req))
-        {
-            return "服务器默认不允许任务自定义解析或下载Host，如确需使用请启动时配置 --server-allow-custom-network-hosts";
-        }
-
-        if (!string.IsNullOrWhiteSpace(req.CallBackWebHook))
-        {
-            if (!Uri.TryCreate(req.CallBackWebHook, UriKind.Absolute, out var callbackUri)
-                || (callbackUri.Scheme != Uri.UriSchemeHttp && callbackUri.Scheme != Uri.UriSchemeHttps))
-            {
-                return "CallBackWebHook必须是绝对HTTP或HTTPS URL";
-            }
-
-            if (!serverOptions.AllowPrivateCallbacks
-                && IPAddress.TryParse(callbackUri.DnsSafeHost, out var callbackAddress)
-                && IsPrivateOrReservedAddress(callbackAddress))
-            {
-                return "服务器默认不允许回调本机、内网或保留地址，如确需使用请启动时配置 --server-allow-private-callbacks";
-            }
-        }
-
-        if (serverOptions.AllowCustomOutput)
-        {
-            if (string.IsNullOrWhiteSpace(req.WorkDir))
-            {
-                req.WorkDir = serverOptions.DownloadRoot;
-                return null;
-            }
-            try
-            {
-                //Windows的ExpandEnvironmentVariables经Win32会在内嵌NUL处截断，必须在展开前拒绝，否则校验被静默绕过
-                if (req.WorkDir.Contains('\0')) return "WorkDir不是有效路径";
-                req.WorkDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(req.WorkDir), serverOptions.DownloadRoot);
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                return "WorkDir不是有效路径";
-            }
-            return null;
-        }
-
-        if (!string.IsNullOrWhiteSpace(req.WorkDir))
-        {
-            return "服务器默认不允许任务自定义WorkDir，如确需使用请启动时配置 --server-allow-custom-output";
-        }
-
-        if (HasUnsafeOutputPattern(req.FilePattern) || HasUnsafeOutputPattern(req.MultiFilePattern))
-        {
-            return "服务器默认只允许相对输出路径，且不能包含上级目录";
-        }
-
-        req.WorkDir = serverOptions.DownloadRoot;
-        req.RestrictedOutputRoot = req.WorkDir;
-        return null;
-    }
+        => requestValidator.ValidateAndNormalizeServerRequest(req);
 
     internal static IResult SubmissionAccepted(string taskId)
         => Results.Json(new TaskSubmissionResult(taskId), AppJsonSerializerContext.Default.TaskSubmissionResult,
             statusCode: StatusCodes.Status202Accepted);
 
-    internal static HttpClient CreatePinnedCallbackHttpClient(IPAddress address)
-    {
-        return new HttpClient(CreatePinnedCallbackHandler(address), disposeHandler: true)
-        {
-            Timeout = TimeSpan.FromSeconds(10)
-        };
-    }
+    internal static bool IsPrivateOrReservedAddress(IPAddress address)
+        => TaskCallbackSender.IsPrivateOrReservedAddress(address);
 
     internal static SocketsHttpHandler CreatePinnedCallbackHandler(IPAddress address)
-    {
-        return new SocketsHttpHandler
-        {
-            AllowAutoRedirect = false,
-            UseProxy = false,
-            ConnectCallback = async (context, cancellationToken) =>
-            {
-                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                try
-                {
-                    await socket.ConnectAsync(
-                        new IPEndPoint(address, context.DnsEndPoint.Port),
-                        cancellationToken);
-                    return new NetworkStream(socket, ownsSocket: true);
-                }
-                catch
-                {
-                    socket.Dispose();
-                    throw;
-                }
-            }
-        };
-    }
-
-    private static bool HasCustomNetworkHost(ServeRequestOptions req)
-    {
-        return !IsDefaultHost(req.Host, "api.bilibili.com")
-            || !IsDefaultHost(req.EpHost, "api.bilibili.com")
-            || !IsDefaultHost(req.TvHost, "api.snm0516.aisee.tv")
-            || !string.IsNullOrWhiteSpace(req.UposHost)
-            || req.AllowPcdn;
-    }
-
-    private static bool IsDefaultHost(string? actual, string expected)
-    {
-        return string.Equals(actual?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool UsesLegacyOption(MyOption option)
-    {
-        return !string.IsNullOrEmpty(option.Aria2cProxy) || option.OnlyHevc || option.OnlyAvc || option.OnlyAv1
-            || option.AddDfnSubfix || option.NoPaddingPageNum || option.BandwithAscending;
-    }
-
-    private static bool HasUnsafeOutputPattern(string? pattern)
-    {
-        if (string.IsNullOrWhiteSpace(pattern))
-        {
-            return false;
-        }
-
-        if (Path.IsPathRooted(pattern))
-        {
-            return true;
-        }
-
-        return pattern
-            .Replace('\\', '/')
-            .Split('/', StringSplitOptions.RemoveEmptyEntries)
-            .Any(part => part == "..");
-    }
-
-    private void ConfigureApiToken(Uri listenUri, string? configuredApiToken)
-    {
-        var token = configuredApiToken?.Trim() ?? "";
-        var generatedToken = false;
-        if (string.IsNullOrEmpty(token) && !IsLoopbackListenHost(listenUri.Host))
-        {
-            token = GenerateApiToken();
-            generatedToken = true;
-        }
-
-        apiToken = token;
-        requireApiToken = !string.IsNullOrEmpty(apiToken);
-
-        if (!requireApiToken)
-        {
-            Console.WriteLine($"API鉴权未启用：{TokenlessAccessMessage}。");
-            return;
-        }
-
-        Console.WriteLine("API鉴权已启用，请在请求头中携带 Authorization: Bearer <token> 或 X-BBDownT-Token: <token>。");
-        if (generatedToken)
-        {
-            Console.WriteLine($"本次自动生成的API Token: {apiToken}");
-        }
-    }
-
-    private static bool IsLoopbackListenHost(string host)
-    {
-        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address);
-    }
-
-    private const string TokenlessAccessMessage =
-        "只接受来自本机的直接请求，如需经反向代理、其他主机名或外部网页访问，请配置 --api-token";
-
-    private static readonly string[] ForwardingHeaders = ["Forwarded", "X-Real-IP", "Via"];
+        => TaskCallbackSender.CreatePinnedCallbackHandler(address);
 
     internal static bool IsDirectLocalRequest(HttpRequest request)
-    {
-        if (!IsLoopbackListenHost(request.Host.Host.Trim('[', ']'))) return false;
-        if (request.Headers.TryGetValue("Origin", out var origin) && !IsLoopbackOrigin(origin.ToString()))
-            return false;
-        return !request.Headers.Keys.Any(header => ForwardingHeaders.Contains(header, StringComparer.OrdinalIgnoreCase)
-            || header.StartsWith("X-Forwarded-", StringComparison.OrdinalIgnoreCase));
-    }
-
-    internal static bool IsLoopbackOrigin(string origin)
-    {
-        return Uri.TryCreate(origin, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
-            && IsLoopbackListenHost(uri.Host.Trim('[', ']'));
-    }
-
-    internal static bool IsPrivateOrReservedAddress(IPAddress address)
-    {
-        if (address.IsIPv4MappedToIPv6)
-        {
-            address = address.MapToIPv4();
-        }
-
-        if (IPAddress.IsLoopback(address))
-        {
-            return true;
-        }
-
-        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
-        {
-            var ipv6Bytes = address.GetAddressBytes();
-            return (ipv6Bytes[0] & 0xFE) == 0xFC
-                || address.IsIPv6LinkLocal
-                || address.IsIPv6SiteLocal
-                || address.IsIPv6Multicast
-                || address.Equals(IPAddress.IPv6Any)
-                || address.Equals(IPAddress.IPv6None);
-        }
-
-        var bytes = address.GetAddressBytes();
-        return bytes[0] == 0
-            || bytes[0] == 10
-            || bytes[0] == 127
-            || (bytes[0] == 100 && bytes[1] is >= 64 and <= 127)
-            || (bytes[0] == 169 && bytes[1] == 254)
-            || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
-            || (bytes[0] == 192 && bytes[1] == 168)
-            || bytes[0] >= 224;
-    }
-
-    private static string GenerateApiToken()
-    {
-        return Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-    }
-
-    private bool HasValidApiToken(HttpContext context)
-    {
-        if (!requireApiToken)
-        {
-            return true;
-        }
-
-        if (context.Request.Headers.TryGetValue("Authorization", out var authorization))
-        {
-            const string bearerPrefix = "Bearer ";
-            var authorizationValue = authorization.ToString();
-            if (authorizationValue.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase)
-                && IsApiTokenMatch(authorizationValue[bearerPrefix.Length..].Trim()))
-            {
-                return true;
-            }
-        }
-
-        return context.Request.Headers.TryGetValue("X-BBDownT-Token", out var token)
-            && IsApiTokenMatch(token.ToString().Trim());
-    }
-
-    private bool IsApiTokenMatch(string candidate)
-    {
-        if (string.IsNullOrEmpty(candidate) || candidate.Length != apiToken.Length)
-        {
-            return false;
-        }
-
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.UTF8.GetBytes(candidate),
-            Encoding.UTF8.GetBytes(apiToken));
-    }
+        => ServerAuth.IsDirectLocalRequest(request);
 
     private async Task<DownloadTask> AddDownloadTaskAsync(QueuedDownloadTask queuedTask)
     {

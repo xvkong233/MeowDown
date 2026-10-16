@@ -59,8 +59,7 @@ internal sealed class DownloadTaskStore
                 finishedTasks.Add(task);
             }
 
-            var oldestAllowed = finishedAt - finishedRetentionSeconds;
-            finishedTasks.RemoveAll(finishedTask => finishedTask.TaskFinishTime < oldestAllowed);
+            PruneFinishedLocked(finishedAt);
             if (finishedTasks.Count > maxFinishedTasks)
             {
                 finishedTasks.RemoveRange(0, finishedTasks.Count - maxFinishedTasks);
@@ -72,7 +71,7 @@ internal sealed class DownloadTaskStore
     {
         lock (stateLock)
         {
-            PruneExpiredFinishedTasks();
+            PruneFinishedLocked(getCurrentTimeSeconds());
             return new(
                 pendingTasks.Select(task => task.CreateSnapshot()).ToList(),
                 runningTasks.Select(task => task.CreateSnapshot()).ToList(),
@@ -100,7 +99,7 @@ internal sealed class DownloadTaskStore
     {
         lock (stateLock)
         {
-            PruneExpiredFinishedTasks();
+            PruneFinishedLocked(getCurrentTimeSeconds());
             return finishedTasks.Select(task => task.CreateSnapshot()).ToList();
         }
     }
@@ -109,7 +108,7 @@ internal sealed class DownloadTaskStore
     {
         lock (stateLock)
         {
-            PruneExpiredFinishedTasks();
+            PruneFinishedLocked(getCurrentTimeSeconds());
             return (pendingTasks.FirstOrDefault(task => task.MatchesId(id))
                 ?? runningTasks.FirstOrDefault(task => task.MatchesId(id))
                 ?? finishedTasks.FirstOrDefault(task => task.MatchesId(id)))?.CreateSnapshot();
@@ -124,9 +123,9 @@ internal sealed class DownloadTaskStore
         }
     }
 
-    private void PruneExpiredFinishedTasks()
+    private void PruneFinishedLocked(long nowSeconds)
     {
-        var oldestAllowed = getCurrentTimeSeconds() - finishedRetentionSeconds;
+        var oldestAllowed = nowSeconds - finishedRetentionSeconds;
         finishedTasks.RemoveAll(finishedTask => finishedTask.TaskFinishTime < oldestAllowed);
     }
 }
