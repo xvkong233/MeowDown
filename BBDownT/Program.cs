@@ -27,6 +27,8 @@ namespace BBDownT;
 partial class Program
 {
     private static readonly string BACKUP_HOST = "upos-sz-mirrorcoso1.bilivideo.com";
+    private const string updateUsageError = "--update需要单独使用，不能与视频地址或其他参数一起传入";
+    private const string migrationUsageError = "--migrate需要单独使用，不能与视频地址或其他参数一起传入";
     public static string SinglePageDefaultSavePath { get; set; } = "<videoTitle>";
     public static string MultiPageDefaultSavePath { get; set; } = "<videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>";
 
@@ -87,26 +89,7 @@ partial class Program
         Func<Task<int>>? loginTv = null)
     {
         var rootCommand = CommandLineInvoker.GetRootCommand(runApp);
-        var updateOption = new Option<bool>("--update", "将独立可执行程序更新到最新版本（测试版可更新到同版本号的后续测试版）；需单独使用")
-        {
-            Arity = ArgumentArity.Zero
-        };
-        const string updateUsageError = "--update需要单独使用，不能与视频地址或其他参数一起传入";
-        updateOption.AddValidator(result =>
-        {
-            if (!result.IsImplicit) result.ErrorMessage = updateUsageError;
-        });
-        rootCommand.AddOption(updateOption);
-        var migrateOption = new Option<bool>("--migrate", "手动迁移程序目录中的旧版BBDown配置、登录文件和下载记录")
-        {
-            Arity = ArgumentArity.Zero
-        };
-        const string migrationUsageError = "--migrate需要单独使用，不能与视频地址或其他参数一起传入";
-        migrateOption.AddValidator(result =>
-        {
-            if (!result.IsImplicit) result.ErrorMessage = migrationUsageError;
-        });
-        rootCommand.AddOption(migrateOption);
+        var (updateOption, migrateOption) = AddStandaloneFlags(rootCommand);
         Command loginCommand = new(
             "login",
             "通过APP扫描二维码以登录您的WEB账号");
@@ -126,66 +109,7 @@ partial class Program
             context.ExitCode = await (loginIntl ?? BBDownTIntlLoginUtil.RunAsync)(context.ParseResult.GetValueForOption(importIntlCookie));
         });
         rootCommand.AddCommand(loginIntlCommand);
-        var serverUrlOpt = new Option<string>(
-            ["--listen", "-l"],
-            description: "服务器监听url");
-        var serverTokenOpt = new Option<string>(
-            ["--api-token"],
-            description: "服务器API鉴权Token，监听非本机地址且未配置时会自动生成");
-        var serverAllowAria2cArgsOpt = new Option<bool>(
-            ["--server-allow-aria2c-args"],
-            description: "允许服务器任务传入aria2c附加参数");
-        var serverAllowCustomOutputOpt = new Option<bool>(
-            ["--server-allow-custom-output"],
-            description: "允许服务器任务自定义工作目录和绝对/上级输出路径");
-        var serverAllowCustomNetworkHostsOpt = new Option<bool>(
-            ["--server-allow-custom-network-hosts"],
-            description: "允许服务器任务自定义解析和下载相关Host");
-        var serverAllowPrivateCallbacksOpt = new Option<bool>(
-            ["--server-allow-private-callbacks"],
-            description: "允许服务器任务回调内网或本机地址");
-        var serverDownloadRootOpt = new Option<string>(
-            ["--server-download-root"],
-            description: "服务器下载根目录，默认使用当前工作目录");
-        var serverMaxQueueOpt = new Option<int>(
-            ["--server-max-queue"],
-            description: "服务器任务队列最大长度，默认100");
-        var serverMaxFinishedOpt = new Option<int>(
-            ["--server-max-finished"],
-            description: "服务器最多保留的已完成任务数，默认1000");
-        var serverFinishedRetentionHoursOpt = new Option<int>(
-            ["--server-finished-retention-hours"],
-            description: "服务器已完成任务保留小时数，默认24");
-        var allowInsecureTlsOpt = new Option<bool>(
-            ["--allow-insecure-tls"],
-            description: "允许忽略TLS证书错误");
-        var cookieAllowedDomainsOpt = new Option<string>(
-            ["--cookie-allowed-domains"],
-            description: "允许携带Cookie的域名列表，用逗号分隔");
-        var maxGrpcMessageMbOpt = new Option<int>(
-            ["--max-grpc-message-mb"],
-            description: "gRPC响应最大解压大小(MiB)，默认64");
-        rootCommand.AddGlobalOption(serverTokenOpt);
-        Command runAsServerCommand = new(
-                "serve",
-                "以服务器模式运行")
-            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverAllowPrivateCallbacksOpt, serverDownloadRootOpt, serverMaxQueueOpt, serverMaxFinishedOpt, serverFinishedRetentionHoursOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
-        runAsServerCommand.SetHandler(context => StartServer(
-            context.ParseResult.GetValueForOption(serverUrlOpt),
-            context.ParseResult.GetValueForOption(serverTokenOpt),
-            context.ParseResult.GetValueForOption(serverAllowAria2cArgsOpt),
-            context.ParseResult.GetValueForOption(serverAllowCustomOutputOpt),
-            context.ParseResult.GetValueForOption(serverAllowCustomNetworkHostsOpt),
-            context.ParseResult.GetValueForOption(serverAllowPrivateCallbacksOpt),
-            context.ParseResult.GetValueForOption(serverDownloadRootOpt),
-            context.ParseResult.GetValueForOption(serverMaxQueueOpt),
-            context.ParseResult.GetValueForOption(serverMaxFinishedOpt),
-            context.ParseResult.GetValueForOption(serverFinishedRetentionHoursOpt),
-            context.ParseResult.GetValueForOption(allowInsecureTlsOpt),
-            context.ParseResult.GetValueForOption(cookieAllowedDomainsOpt),
-            context.ParseResult.GetValueForOption(maxGrpcMessageMbOpt),
-            context.ParseResult.GetValueForOption(CommandLineInvoker.Debug)));
-        rootCommand.AddCommand(runAsServerCommand);
+        BuildServeCommand(rootCommand);
         rootCommand.Description = "BBDownT是一个免费且便捷高效的哔哩哔哩下载/解析软件.";
         rootCommand.TreatUnmatchedTokensAsErrors = true;
 
@@ -289,7 +213,7 @@ partial class Program
         if (commandLineResult.CommandResult.Command != rootCommand)
         {
             // 服务器模式需要完整的arg列表
-            if (commandLineResult.CommandResult.Command.Name.ToLower() == "serve")
+            if (string.Equals(commandLineResult.CommandResult.Command.Name, "serve", StringComparison.OrdinalIgnoreCase))
             {
                 newArgsList.AddRange(args);
                 if (!BBDownTConfigParser.HandleConfig(newArgsList, rootCommand, "serve"))
@@ -302,16 +226,7 @@ partial class Program
             return await parser.InvokeAsync(newArgsList.ToArray());
         }
 
-        foreach (var a in commandLineResult.CommandResult.Children.OfType<ArgumentResult>())
-        {
-            newArgsList.Add(a.Tokens[0].Value);
-        }
-        foreach (var o in CommandLineOptionOrder.ByAppearance(
-            commandLineResult.CommandResult.Children.OfType<OptionResult>(),
-            args))
-        {
-            newArgsList.AddRange(CommandLineOptionOrder.Arguments(o));
-        }
+        newArgsList = ReorderRootArguments(commandLineResult, args);
 
         Console.BackgroundColor = ConsoleColor.DarkBlue;
         Console.ForegroundColor = ConsoleColor.White;
@@ -331,6 +246,132 @@ partial class Program
         return await parser.InvokeAsync(newArgsList.ToArray());
     }
 
+    private static (Option<bool> updateOption, Option<bool> migrateOption) AddStandaloneFlags(Command rootCommand)
+    {
+        var updateOption = new Option<bool>("--update", "将独立可执行程序更新到最新版本（测试版可更新到同版本号的后续测试版）；需单独使用")
+        {
+            Arity = ArgumentArity.Zero
+        };
+        updateOption.AddValidator(result =>
+        {
+            if (!result.IsImplicit) result.ErrorMessage = updateUsageError;
+        });
+        rootCommand.AddOption(updateOption);
+        var migrateOption = new Option<bool>("--migrate", "手动迁移程序目录中的旧版BBDown配置、登录文件和下载记录")
+        {
+            Arity = ArgumentArity.Zero
+        };
+        migrateOption.AddValidator(result =>
+        {
+            if (!result.IsImplicit) result.ErrorMessage = migrationUsageError;
+        });
+        rootCommand.AddOption(migrateOption);
+        return (updateOption, migrateOption);
+    }
+
+    private static void BuildServeCommand(Command rootCommand)
+    {
+        var serverUrlOpt = new Option<string>(
+            ["--listen", "-l"],
+            description: "服务器监听url");
+        var serverTokenOpt = new Option<string>(
+            ["--api-token"],
+            description: "服务器API鉴权Token，监听非本机地址且未配置时会自动生成");
+        var serverAllowAria2cArgsOpt = new Option<bool>(
+            ["--server-allow-aria2c-args"],
+            description: "允许服务器任务传入aria2c附加参数");
+        var serverAllowCustomOutputOpt = new Option<bool>(
+            ["--server-allow-custom-output"],
+            description: "允许服务器任务自定义工作目录和绝对/上级输出路径");
+        var serverAllowCustomNetworkHostsOpt = new Option<bool>(
+            ["--server-allow-custom-network-hosts"],
+            description: "允许服务器任务自定义解析和下载相关Host");
+        var serverAllowPrivateCallbacksOpt = new Option<bool>(
+            ["--server-allow-private-callbacks"],
+            description: "允许服务器任务回调内网或本机地址");
+        var serverDownloadRootOpt = new Option<string>(
+            ["--server-download-root"],
+            description: "服务器下载根目录，默认使用当前工作目录");
+        var serverMaxQueueOpt = new Option<int>(
+            ["--server-max-queue"],
+            description: "服务器任务队列最大长度，默认100");
+        var serverMaxFinishedOpt = new Option<int>(
+            ["--server-max-finished"],
+            description: "服务器最多保留的已完成任务数，默认1000");
+        var serverFinishedRetentionHoursOpt = new Option<int>(
+            ["--server-finished-retention-hours"],
+            description: "服务器已完成任务保留小时数，默认24");
+        var allowInsecureTlsOpt = new Option<bool>(
+            ["--allow-insecure-tls"],
+            description: "允许忽略TLS证书错误");
+        var cookieAllowedDomainsOpt = new Option<string>(
+            ["--cookie-allowed-domains"],
+            description: "允许携带Cookie的域名列表，用逗号分隔");
+        var maxGrpcMessageMbOpt = new Option<int>(
+            ["--max-grpc-message-mb"],
+            description: "gRPC响应最大解压大小(MiB)，默认64");
+        rootCommand.AddGlobalOption(serverTokenOpt);
+        Command runAsServerCommand = new(
+                "serve",
+                "以服务器模式运行")
+            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverAllowPrivateCallbacksOpt, serverDownloadRootOpt, serverMaxQueueOpt, serverMaxFinishedOpt, serverFinishedRetentionHoursOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
+        runAsServerCommand.SetHandler(context =>
+        {
+            var defaults = new BBDownTServerOptions();
+            var listenUrl = context.ParseResult.GetValueForOption(serverUrlOpt);
+            var apiToken = context.ParseResult.GetValueForOption(serverTokenOpt);
+            var allowAria2cArgs = context.ParseResult.GetValueForOption(serverAllowAria2cArgsOpt);
+            var allowCustomOutput = context.ParseResult.GetValueForOption(serverAllowCustomOutputOpt);
+            var allowCustomNetworkHosts = context.ParseResult.GetValueForOption(serverAllowCustomNetworkHostsOpt);
+            var allowPrivateCallbacks = context.ParseResult.GetValueForOption(serverAllowPrivateCallbacksOpt);
+            var downloadRoot = context.ParseResult.GetValueForOption(serverDownloadRootOpt);
+            var maxQueueLength = context.ParseResult.GetValueForOption(serverMaxQueueOpt);
+            var maxFinishedTasks = context.ParseResult.GetValueForOption(serverMaxFinishedOpt);
+            var finishedRetentionHours = context.ParseResult.GetValueForOption(serverFinishedRetentionHoursOpt);
+            var allowInsecureTls = context.ParseResult.GetValueForOption(allowInsecureTlsOpt);
+            var cookieAllowedDomains = context.ParseResult.GetValueForOption(cookieAllowedDomainsOpt);
+            var maxGrpcMessageMb = context.ParseResult.GetValueForOption(maxGrpcMessageMbOpt);
+            var serverOptions = defaults with
+            {
+                AllowAria2cArgs = allowAria2cArgs,
+                AllowCustomOutput = allowCustomOutput,
+                AllowCustomNetworkHosts = allowCustomNetworkHosts,
+                AllowPrivateCallbacks = allowPrivateCallbacks,
+                DownloadRoot = string.IsNullOrWhiteSpace(downloadRoot) ? defaults.DownloadRoot : downloadRoot,
+                MaxQueueLength = maxQueueLength > 0 ? maxQueueLength : defaults.MaxQueueLength,
+                MaxFinishedTasks = maxFinishedTasks > 0 ? maxFinishedTasks : defaults.MaxFinishedTasks,
+                FinishedTaskRetentionSeconds = finishedRetentionHours > 0
+                    ? finishedRetentionHours * 60L * 60L
+                    : defaults.FinishedTaskRetentionSeconds
+            };
+            StartServer(
+                listenUrl,
+                apiToken,
+                serverOptions,
+                allowInsecureTls,
+                cookieAllowedDomains,
+                maxGrpcMessageMb,
+                context.ParseResult.GetValueForOption(CommandLineInvoker.Debug));
+        });
+        rootCommand.AddCommand(runAsServerCommand);
+    }
+
+    private static List<string> ReorderRootArguments(ParseResult commandLineResult, string[] args)
+    {
+        var newArgsList = new List<string>();
+        foreach (var a in commandLineResult.CommandResult.Children.OfType<ArgumentResult>())
+        {
+            newArgsList.Add(a.Tokens[0].Value);
+        }
+        foreach (var o in CommandLineOptionOrder.ByAppearance(
+            commandLineResult.CommandResult.Children.OfType<OptionResult>(),
+            args))
+        {
+            newArgsList.AddRange(CommandLineOptionOrder.Arguments(o));
+        }
+        return newArgsList;
+    }
+
     private static Task RunApp(MyOption myOption)
     {
         //检测更新
@@ -341,14 +382,7 @@ partial class Program
     private static void StartServer(
         string? listenUrl,
         string? apiToken,
-        bool allowAria2cArgs,
-        bool allowCustomOutput,
-        bool allowCustomNetworkHosts,
-        bool allowPrivateCallbacks,
-        string? downloadRoot,
-        int maxQueueLength,
-        int maxFinishedTasks,
-        int finishedRetentionHours,
+        BBDownTServerOptions serverOptions,
         bool allowInsecureTls,
         string? cookieAllowedDomains,
         int maxGrpcMessageMb,
@@ -358,20 +392,6 @@ partial class Program
         var defaultListenUrl = "http://127.0.0.1:23333";
         var actualListenUrl = string.IsNullOrEmpty(listenUrl) ? defaultListenUrl : listenUrl;
         ApplyServeSecurityOptions(allowInsecureTls, cookieAllowedDomains, maxGrpcMessageMb);
-        var defaults = new BBDownTServerOptions();
-        var serverOptions = defaults with
-        {
-            AllowAria2cArgs = allowAria2cArgs,
-            AllowCustomOutput = allowCustomOutput,
-            AllowCustomNetworkHosts = allowCustomNetworkHosts,
-            AllowPrivateCallbacks = allowPrivateCallbacks,
-            DownloadRoot = string.IsNullOrWhiteSpace(downloadRoot) ? defaults.DownloadRoot : downloadRoot,
-            MaxQueueLength = maxQueueLength > 0 ? maxQueueLength : defaults.MaxQueueLength,
-            MaxFinishedTasks = maxFinishedTasks > 0 ? maxFinishedTasks : defaults.MaxFinishedTasks,
-            FinishedTaskRetentionSeconds = finishedRetentionHours > 0
-                ? finishedRetentionHours * 60L * 60L
-                : defaults.FinishedTaskRetentionSeconds
-        };
         //检测更新
         _ = CheckUpdateAsync();
         var server = new BBDownTApiServer(serverOptions);
@@ -1326,6 +1346,7 @@ partial class Program
             }
             catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException)
             {
+                LogDebug("探测旧版输出文件失败: {0}", ex.Message);
             }
         }
         return null;

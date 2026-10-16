@@ -35,9 +35,9 @@ static partial class BBDownTUtil
                 LogColor($"发现新版本：{latestVer}");
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            ;
+            LogDebug("检查更新失败: {0}", ex.Message);
         }
     }
 
@@ -456,8 +456,9 @@ static partial class BBDownTUtil
             process.WaitForExit();
             return SupportsDolbyVision(info);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            LogDebug("检测ffmpeg杜比视界支持失败: {0}", ex.Message);
         }
         return false;
     }
@@ -489,7 +490,7 @@ static partial class BBDownTUtil
                 }
             }
         }
-        catch (Exception) { }
+        catch (Exception ex) { LogDebug("获取章节信息失败: {0}", ex.Message); }
         return ponints;
     }
 
