@@ -10,10 +10,20 @@ namespace BBDownT.Core.Fetcher;
 
 public partial class NormalInfoFetcher : IFetcher
 {
-    public async Task<VInfo> FetchAsync(string id)
+    public Task<VInfo> FetchAsync(string id) => FetchAsync(
+        id,
+        url => GetWebSourceAsync(url),
+        url => GetWebSourceAsync(url),
+        url => GetWebSourceAsync(url));
+
+    internal static async Task<VInfo> FetchAsync(
+        string id,
+        Func<string, Task<string>> fetchView,
+        Func<string, Task<string>> fetchPlayerSo,
+        Func<string, Task<string>> fetchEdgeInfo)
     {
         string api = $"https://api.bilibili.com/x/web-interface/view?aid={id}";
-        string json = await GetWebSourceAsync(api);
+        string json = await fetchView(api);
         using var infoJson = JsonDocument.Parse(json);
         var data = BilibiliApi.ReadPayload(infoJson.RootElement, "获取视频信息");
         string title = data.GetProperty("title").ToString();
@@ -53,7 +63,7 @@ public partial class NormalInfoFetcher : IFetcher
         if (isSteinGate == 1) // 互动视频获取分P信息
         {
             var playerSoApi = $"https://api.bilibili.com/x/player.so?bvid={bvid}&id=cid:{cid}";
-            var playerSoText = await GetWebSourceAsync(playerSoApi);
+            var playerSoText = await fetchPlayerSo(playerSoApi);
             var playerSoXml = new XmlDocument();
             playerSoXml.LoadXml($"<root>{playerSoText}</root>");
                 
@@ -65,7 +75,7 @@ public partial class NormalInfoFetcher : IFetcher
                 var graphVersion = interactionJson.RootElement
                     .GetProperty("graph_version").GetInt64();
                 var edgeInfoApi = $"https://api.bilibili.com/x/stein/edgeinfo_v2?graph_version={graphVersion}&bvid={bvid}";
-                var edgeInfoJson = await GetWebSourceAsync(edgeInfoApi);
+                var edgeInfoJson = await fetchEdgeInfo(edgeInfoApi);
                 using var edgeDocument = JsonDocument.Parse(edgeInfoJson);
                 var edgeInfoData = BilibiliApi.ReadPayload(edgeDocument.RootElement, "获取互动视频分支");
                 var questions = edgeInfoData.GetProperty("edges").GetProperty("questions").EnumerateArray()

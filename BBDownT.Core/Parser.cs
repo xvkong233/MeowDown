@@ -221,13 +221,6 @@ public static partial class Parser
             FetchPlayResponseWithRiskControlRetryAsync(
                 () => fetchIntlVariant(requestedQn, code), riskControlDelay, rotateUserAgent);
 
-        void MapIntlTracks(JsonElement response) =>
-            PlayResponseMapper.MapIntl(
-                response,
-                parsedResult,
-                url => BaseUrlRegex().IsMatch(url),
-                maximumQuality: string.IsNullOrEmpty(aid) ? GetIntlGrantedQuality(response) : null);
-
         //调用解析
         parsedResult.WebJsonString = await FetchPrimaryAsync(qn);
 
@@ -238,6 +231,83 @@ public static partial class Parser
             LogDebug(parsedResult.WebJsonString);
         if (intlApi) IntlBangumiWebApi.EnsurePlaybackSuccess(data);
         parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(data);
+
+        var context = new ExtractContext
+        {
+            ParsedResult = parsedResult,
+            Data = data,
+            FetchPrimaryAsync = FetchPrimaryAsync,
+            FetchIntlVariantAsync = FetchIntlVariantAsync,
+            RequestedAudioLanguage = requestedAudioLanguage
+        };
+
+        var intlResult = await ExtractIntlTracksAsync(context, intlApi, aid, qn);
+        if (intlResult is not null) return intlResult;
+
+        var root = SelectResponseRoot(context.Data);
+        context.Root = root;
+        if (!HasDash(root) && !HasDurl(root))
+        {
+            BilibiliApi.ThrowIfError(context.Data, "获取播放地址");
+            if (IsRiskControlVoucherResponse(parsedResult.WebJsonString))
+                throw new BilibiliApiException("获取播放地址失败：B站播放接口返回风控凭证(v_voucher)", -352);
+        }
+        AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
+
+        bool bangumi = aidOri.StartsWith("ep:");
+
+        if (HasDash(root)) //dash
+        {
+            await ExtractDashTracksAsync(context, aid, cid, tvApi, appApi, bangumi);
+            root = context.Root;
+        }
+        else if (HasDurl(root)) //flv
+        {
+            await ExtractDurlTracksAsync(context, qn);
+            root = context.Root;
+        }
+
+        // 番剧片头片尾转分段信息, 预计效果: 正片? -> 片头 -> 正片 -> 片尾
+        if (bangumi)
+        {
+            PlayResponseMapper.MapClipInfo(root, parsedResult);
+        }
+
+        return parsedResult;
+    }
+
+    private sealed class ExtractContext
+    {
+        public required ParsedResult ParsedResult { get; init; }
+        public JsonElement Data { get; set; }
+        public JsonElement Root { get; set; }
+        public JsonElement AudioData { get; set; }
+        public JsonElement AudioRoot { get; set; }
+        public required Func<string, Task<string>> FetchPrimaryAsync { get; init; }
+        public required Func<string, string, Task<string>> FetchIntlVariantAsync { get; init; }
+        public required string? RequestedAudioLanguage { get; init; }
+    }
+
+    /// <summary>
+    /// intl 两段解析（intl WEB 响应与 App 变体响应）。
+    /// 返回非 null 表示 intl 流程已终结，调用方应直接返回该结果；
+    /// 返回 null 表示继续走主流程，此时 <see cref="ExtractContext.Data"/> 已可能被 App 变体响应重赋值。
+    /// </summary>
+    private static async Task<ParsedResult?> ExtractIntlTracksAsync(
+        ExtractContext context,
+        bool intlApi,
+        string aid,
+        string qn)
+    {
+        var parsedResult = context.ParsedResult;
+        var data = context.Data;
+
+        void MapIntlTracks(JsonElement response) =>
+            PlayResponseMapper.MapIntl(
+                response,
+                parsedResult,
+                url => BaseUrlRegex().IsMatch(url),
+                maximumQuality: string.IsNullOrEmpty(aid) ? GetIntlGrantedQuality(response) : null);
 
         if (intlApi && data.TryGetProperty("data", out var webData)
             && webData.ValueKind == JsonValueKind.Object
@@ -257,10 +327,11 @@ public static partial class Parser
         {
             MapIntlTracks(data);
 
-            parsedResult.WebJsonString = await FetchIntlVariantAsync(qn, "1");
+            parsedResult.WebJsonString = await context.FetchIntlVariantAsync(qn, "1");
             data = ParseJsonRoot(parsedResult.WebJsonString);
             if (intlApi) IntlBangumiWebApi.EnsurePlaybackSuccess(data);
             parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(data);
+            context.Data = data;
             if (IsIntlResponse(data))
             {
                 MapIntlTracks(data);
@@ -269,97 +340,96 @@ public static partial class Parser
                 return parsedResult;
             }
         }
-        var root = SelectResponseRoot(data);
-        if (!HasDash(root) && !HasDurl(root))
+        return null;
+    }
+
+    private static async Task ExtractDashTracksAsync(
+        ExtractContext context,
+        string aid,
+        string cid,
+        bool tvApi,
+        bool appApi,
+        bool bangumi)
+    {
+        var parsedResult = context.ParsedResult;
+        var root = context.Root;
+        int pDur = PlayResponseMapper.GetDurationSeconds(root);
+        var audioData = context.Data;
+        var audioRoot = root;
+
+        PlayResponseMapper.MapDashVideos(
+            root,
+            parsedResult,
+            pDur,
+            tvApi,
+            appApi,
+            url => BaseUrlRegex().IsMatch(url));
+
+        // 此处处理免二压视频，需要单独再请求一次。
+        if (!appApi)
         {
-            BilibiliApi.ThrowIfError(data, "获取播放地址");
-            if (IsRiskControlVoucherResponse(parsedResult.WebJsonString))
-                throw new BilibiliApiException("获取播放地址失败：B站播放接口返回风控凭证(v_voucher)", -352);
-        }
-        AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
-
-        bool bangumi = aidOri.StartsWith("ep:");
-
-        if (HasDash(root)) //dash
-        {
-            int pDur = PlayResponseMapper.GetDurationSeconds(root);
-            var audioData = data;
-            var audioRoot = root;
-
-            PlayResponseMapper.MapDashVideos(
-                root,
-                parsedResult,
-                pDur,
-                tvApi,
-                appApi,
-                url => BaseUrlRegex().IsMatch(url));
-
-            // 此处处理免二压视频，需要单独再请求一次。
-            if (!appApi)
+            var refetchJson = await context.FetchPrimaryAsync(GetMaxQn());
+            var refetchData = ParseJsonRoot(refetchJson);
+            parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(refetchData);
+            var refetchRoot = SelectResponseRoot(refetchData);
+            if (HasDash(refetchRoot))
             {
-                var refetchJson = await FetchPrimaryAsync(GetMaxQn());
-                var refetchData = ParseJsonRoot(refetchJson);
-                parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(refetchData);
-                var refetchRoot = SelectResponseRoot(refetchData);
-                if (HasDash(refetchRoot))
+                parsedResult.WebJsonString = refetchJson;
+                root = refetchRoot;
+                AudioLanguageMapper.Map(root, parsedResult, context.RequestedAudioLanguage);
+                PlayResponseMapper.MapDashVideos(
+                    root,
+                    parsedResult,
+                    pDur,
+                    tvApi,
+                    appApi,
+                    url => BaseUrlRegex().IsMatch(url));
+                if (PlayResponseMapper.HasDashAudio(root))
                 {
-                    parsedResult.WebJsonString = refetchJson;
-                    root = refetchRoot;
-                    AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
-                    PlayResponseMapper.MapDashVideos(
-                        root,
-                        parsedResult,
-                        pDur,
-                        tvApi,
-                        appApi,
-                        url => BaseUrlRegex().IsMatch(url));
-                    if (PlayResponseMapper.HasDashAudio(root))
-                    {
-                        audioData = refetchData;
-                        audioRoot = root;
-                    }
+                    audioData = refetchData;
+                    audioRoot = root;
                 }
             }
-
-            PlayResponseMapper.MapDashAudioAndDubbing(
-                audioData,
-                audioRoot,
-                parsedResult,
-                pDur,
-                aid,
-                cid,
-                tvApi,
-                appApi,
-                bangumi,
-                url => BaseUrlRegex().IsMatch(url));
         }
-        else if (HasDurl(root)) //flv
+
+        PlayResponseMapper.MapDashAudioAndDubbing(
+            audioData,
+            audioRoot,
+            parsedResult,
+            pDur,
+            aid,
+            cid,
+            tvApi,
+            appApi,
+            bangumi,
+            url => BaseUrlRegex().IsMatch(url));
+
+        context.Root = root;
+        context.AudioData = audioData;
+        context.AudioRoot = audioRoot;
+    }
+
+    private static async Task ExtractDurlTracksAsync(ExtractContext context, string qn)
+    {
+        var parsedResult = context.ParsedResult;
+        var root = context.Root;
+        //默认以最高清晰度解析
+        if (qn == "0")
         {
-            //默认以最高清晰度解析
-            if (qn == "0")
+            var refetchJson = await context.FetchPrimaryAsync(GetMaxQn());
+            var refetchData = ParseJsonRoot(refetchJson);
+            var refetchRoot = SelectResponseRoot(refetchData);
+            if (HasDurl(refetchRoot) && refetchRoot.TryGetProperty("quality", out _))
             {
-                var refetchJson = await FetchPrimaryAsync(GetMaxQn());
-                var refetchData = ParseJsonRoot(refetchJson);
-                var refetchRoot = SelectResponseRoot(refetchData);
-                if (HasDurl(refetchRoot) && refetchRoot.TryGetProperty("quality", out _))
-                {
-                    // DURL replaces its initial response rather than accumulating tracks.
-                    parsedResult.WebJsonString = refetchJson;
-                    parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(refetchData);
-                    root = refetchRoot;
-                    AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
-                }
+                // DURL replaces its initial response rather than accumulating tracks.
+                parsedResult.WebJsonString = refetchJson;
+                parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(refetchData);
+                root = refetchRoot;
+                AudioLanguageMapper.Map(root, parsedResult, context.RequestedAudioLanguage);
             }
-            PlayResponseMapper.MapDurl(root, parsedResult);
         }
-
-        // 番剧片头片尾转分段信息, 预计效果: 正片? -> 片头 -> 正片 -> 片尾
-        if (bangumi)
-        {
-            PlayResponseMapper.MapClipInfo(root, parsedResult);
-        }
-
-        return parsedResult;
+        PlayResponseMapper.MapDurl(root, parsedResult);
+        context.Root = root;
     }
 
     private static bool HasDash(JsonElement root)

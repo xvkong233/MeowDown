@@ -28,14 +28,14 @@ internal static class PlayResponseMapper
                     dfn = IntlQualityLabel(quality, description),
                     dur = duration,
                     baseUrl = SelectPreferredUrl(resource, isExcludedUrl, "url"),
-                    bandwith = (long)(ReadNumber(resource, "bandwidth") / 1000),
+                    bandwith = ReadBandwidthKbpsDefensive(resource),
                     codecs = ReadIntlVideoCodec(resource),
                     size = ReadNumber(resource, "size"),
                     res = resource.TryGetProperty("width", out var width) && resource.TryGetProperty("height", out var height)
                         ? $"{width}x{height}" : "",
                     fps = ReadText(resource, "frame_rate")
                 };
-                if (!result.VideoTracks.Contains(video)) result.VideoTracks.Add(video);
+                AddIfAbsent(result.VideoTracks, video);
             }
         }
         if (playurl.TryGetProperty("audio_resource", out var audios) && audios.ValueKind == JsonValueKind.Array)
@@ -51,10 +51,10 @@ internal static class PlayResponseMapper
                     dfn = id,
                     dur = duration,
                     baseUrl = SelectPreferredUrl(resource, isExcludedUrl, "url"),
-                    bandwith = (long)(ReadNumber(resource, "bandwidth") / 1000),
+                    bandwith = ReadBandwidthKbpsDefensive(resource),
                     codecs = NormalizeAudioCodec(ReadText(resource, "codecs"))
                 };
-                if (!result.AudioTracks.Contains(audio)) result.AudioTracks.Add(audio);
+                AddIfAbsent(result.AudioTracks, audio);
             }
         }
     }
@@ -71,6 +71,19 @@ internal static class PlayResponseMapper
 
     private static double ReadNumber(JsonElement node, string property)
         => node.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetDouble() : 0;
+
+    // 直取语义：属性缺失或非整数字符串会直接抛出，保持既有 Convert.ToInt64(ToString()) 惯用法。
+    private static long ReadBandwidthKbps(JsonElement node)
+        => Convert.ToInt64(node.GetProperty("bandwidth").ToString()) / 1000;
+
+    // 防御语义：属性缺失或非数字时得 0，保持既有 (long)(ReadNumber() / 1000) 惯用法。
+    private static long ReadBandwidthKbpsDefensive(JsonElement node)
+        => (long)(ReadNumber(node, "bandwidth") / 1000);
+
+    private static void AddIfAbsent<T>(List<T> tracks, T track)
+    {
+        if (!tracks.Contains(track)) tracks.Add(track);
+    }
 
     private static string ReadIntlVideoCodec(JsonElement resource)
     {
@@ -109,17 +122,14 @@ internal static class PlayResponseMapper
                 dur = duration,
                 id = videoId,
                 dfn = IntlQualityLabel(videoId, ReadText(streamInfo, "description")),
-                bandwith = Convert.ToInt64(dashVideo.GetProperty("bandwidth").ToString()) / 1000,
+                bandwith = ReadBandwidthKbps(dashVideo),
                 baseUrl = SelectPreferredUrl(dashVideo, isExcludedUrl),
                 codecs = GetVideoCodec(dashVideo.GetProperty("codecid").ToString()),
                 size = dashVideo.TryGetProperty("size", out var sizeNode)
                     ? Convert.ToDouble(sizeNode.ToString())
                     : 0
             };
-            if (!parsedResult.VideoTracks.Contains(video))
-            {
-                parsedResult.VideoTracks.Add(video);
-            }
+            AddIfAbsent(parsedResult.VideoTracks, video);
         }
 
         foreach (var node in videoInfo.GetProperty("dash_audio").EnumerateArray())
@@ -130,14 +140,11 @@ internal static class PlayResponseMapper
                 id = audioId,
                 dfn = audioId,
                 dur = duration,
-                bandwith = Convert.ToInt64(node.GetProperty("bandwidth").ToString()) / 1000,
+                bandwith = ReadBandwidthKbps(node),
                 baseUrl = SelectPreferredUrl(node, isExcludedUrl),
                 codecs = "M4A"
             };
-            if (!parsedResult.AudioTracks.Contains(audio))
-            {
-                parsedResult.AudioTracks.Add(audio);
-            }
+            AddIfAbsent(parsedResult.AudioTracks, audio);
         }
     }
 
@@ -181,7 +188,7 @@ internal static class PlayResponseMapper
                 dur = duration,
                 id = videoId,
                 dfn = Config.qualitys.GetValueOrDefault(videoId, videoId),
-                bandwith = Convert.ToInt64(node.GetProperty("bandwidth").ToString()) / 1000,
+                bandwith = ReadBandwidthKbps(node),
                 baseUrl = SelectPreferredUrl(node, isExcludedUrl),
                 codecs = GetVideoCodec(node.GetProperty("codecid").ToString()),
                 size = node.TryGetProperty("size", out var sizeNode)
@@ -193,10 +200,7 @@ internal static class PlayResponseMapper
                 mappedVideo.res = node.GetProperty("width") + "x" + node.GetProperty("height");
                 mappedVideo.fps = node.GetProperty("frame_rate").ToString();
             }
-            if (!parsedResult.VideoTracks.Contains(mappedVideo))
-            {
-                parsedResult.VideoTracks.Add(mappedVideo);
-            }
+            AddIfAbsent(parsedResult.VideoTracks, mappedVideo);
         }
     }
 
@@ -314,10 +318,7 @@ internal static class PlayResponseMapper
             dur = (int)length / 1000,
             size = size
         };
-        if (!parsedResult.VideoTracks.Contains(video))
-        {
-            parsedResult.VideoTracks.Add(video);
-        }
+        AddIfAbsent(parsedResult.VideoTracks, video);
     }
 
     internal static void MapClipInfo(JsonElement root, ParsedResult parsedResult)
@@ -386,7 +387,7 @@ internal static class PlayResponseMapper
             id = audioId,
             dfn = audioId,
             dur = duration,
-            bandwith = Convert.ToInt64(node.GetProperty("bandwidth").ToString()) / 1000,
+            bandwith = ReadBandwidthKbps(node),
             baseUrl = SelectPreferredUrl(node, isExcludedUrl),
             codecs = normalizeCodec ? NormalizeAudioCodec(codec) : codec
         };
