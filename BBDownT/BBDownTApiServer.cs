@@ -282,6 +282,8 @@ public class BBDownTApiServer
             }
             try
             {
+                //Windows的ExpandEnvironmentVariables经Win32会在内嵌NUL处截断，必须在展开前拒绝，否则校验被静默绕过
+                if (req.WorkDir.Contains('\0')) return "WorkDir不是有效路径";
                 req.WorkDir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(req.WorkDir), serverOptions.DownloadRoot);
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)

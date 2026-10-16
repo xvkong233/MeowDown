@@ -225,7 +225,8 @@ public class IntlMediaRequestTests
         Assert.Contains("--header=Referer: " + referer, args);
         Assert.Contains("--header=User-Agent: Mozilla/5.0", args);
         Assert.Contains("--max-tries=2", args);
-        Assert.Equal(new[] { SignedUrl, "-d", "/in-memory/output directory", "-o", "video.mp4" }, args.TakeLast(5));
+        var expectedDir = Path.GetDirectoryName("/in-memory/output directory/video.mp4")!;
+        Assert.Equal(new[] { SignedUrl, "-d", expectedDir, "-o", "video.mp4" }, args.TakeLast(5));
         Assert.Contains("--auto-file-renaming=false", args);
         Assert.Contains("--allow-overwrite=true", args);
     }
