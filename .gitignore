@@ -384,3 +384,6 @@ BBDownT.config
 BBDownT.archives
 *.migrated-*
 /downloads/
+
+# ZCode workflow drafts
+.zcode/
