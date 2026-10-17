@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using static BBDownT.Core.Logger;
 
 namespace BBDownT;
 
@@ -65,7 +66,7 @@ internal sealed record DownloadResumeState(
         return hash.Equals(LocalSha256, StringComparison.Ordinal);
     }
 
-    internal static DownloadResumeState? Parse(string text)
+    internal static DownloadResumeState? Parse(string text, string? sourcePath = null)
     {
         try
         {
@@ -76,11 +77,17 @@ internal sealed record DownloadResumeState(
                 && state.LocalLength >= 0 && state.LocalLength <= state.RangeLength
                 && (!state.Complete || state.LocalLength == state.RangeLength) ? state : null;
         }
-        catch (JsonException) { return null; }
+        catch (JsonException ex)
+        {
+            LogWarn(sourcePath is null
+                ? $"解析续传状态记录失败: {ex.Message}，已忽略该记录"
+                : $"解析续传状态文件 {sourcePath} 失败: {ex.Message}，已忽略该记录");
+            return null;
+        }
     }
 
     internal static async Task<DownloadResumeState?> LoadAsync(string path)
-        => File.Exists(path) ? Parse(await File.ReadAllTextAsync(path)) : null;
+        => File.Exists(path) ? Parse(await File.ReadAllTextAsync(path), path) : null;
 
     internal async Task SaveAsync(string path, string? restrictedOutputRoot = null)
     {

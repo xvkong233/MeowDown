@@ -105,7 +105,7 @@ internal sealed class OutputOwnership(string indexPath)
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                LogDebug("记录输出文件失败: {0}", ex.Message);
+                LogWarn($"记录输出文件失败: {indexPath}, 原因: {ex.Message}");
             }
         }
     }
@@ -127,7 +127,7 @@ internal sealed class OutputOwnership(string indexPath)
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                LogDebug("读取{0}失败: {1}", FileName, ex.Message);
+                LogWarn($"读取{indexPath}失败: {ex.Message}，覆盖保护暂不可用");
                 return loaded;
             }
         }

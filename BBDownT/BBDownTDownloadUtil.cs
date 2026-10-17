@@ -36,6 +36,9 @@ internal static class BBDownTDownloadUtil
         internal long ClipSize { get; set; } = DefaultClipSize;
     }
 
+    // Bootstrap result shared by both download entry points.
+    private sealed record PreparedDownload(string Url, string Path, string? SourceObjectHash, bool HandledByAria2c);
+
     internal static async Task RangeDownloadToTmpAsync(
         int id, string url, string tmpName, long fromPosition, long? toPosition,
         bool failOnRangeNotSupported = false,
@@ -53,54 +56,60 @@ internal static class BBDownTDownloadUtil
         await using var local = new FileStream(tmpName, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None,
             262144, FileOptions.Asynchronous);
         var existing = local.Length;
-        var localMatches = state is not null && state.MatchesRange(identity, fromPosition, toPosition)
-            && await state.MatchesStreamAsync(local);
-        var sameSource = localMatches && state!.MatchesSource(url, sourceObjectHash);
-        var fullCheckpoint = localMatches && existing == state!.LocalLength && existing == state.RangeLength;
-        if (fullCheckpoint && sameSource && state!.Validator.IsUsable
-            && (state.Complete || toPosition is not null || expectedResource is not null))
+        // The three local-state predicates (with their IO) are evaluated here; the
+        // flag derivation that follows only narrows the saved state once.
+        var localMatches = false;
+        var sameSource = false;
+        var fullCheckpoint = false;
+        if (state is { } savedState && savedState.MatchesRange(identity, fromPosition, toPosition)
+            && await savedState.MatchesStreamAsync(local))
+        {
+            localMatches = true;
+            sameSource = savedState.MatchesSource(url, sourceObjectHash);
+            fullCheckpoint = existing == savedState.LocalLength && existing == savedState.RangeLength;
+        }
+        if (fullCheckpoint && sameSource && state is { } checkpoint && checkpoint.Validator.IsUsable
+            && (checkpoint.Complete || toPosition is not null || expectedResource is not null))
         {
             // A complete part still needs remote validation. Multi-thread callers
             // share one header probe; direct callers perform their own probe.
             expectedResource ??= await TryGetResourceMetadataAsync(url, httpClient, cancellationToken, retryDelay,
                 sourceObjectHash is not null);
-            if (expectedResource is not null && state.TotalLength == expectedResource.TotalLength
-                && state.Validator.Matches(expectedResource.Validator))
+            if (expectedResource is not null && checkpoint.TotalLength == expectedResource.TotalLength
+                && checkpoint.Validator.Matches(expectedResource.Validator))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (!state.Complete || state.SourceUriHash != sourceHash || state.SourceObjectHash != sourceObjectHash)
-                    await (state with { Complete = true, SourceUriHash = sourceHash, SourceObjectHash = sourceObjectHash })
+                if (!checkpoint.Complete || checkpoint.SourceUriHash != sourceHash || checkpoint.SourceObjectHash != sourceObjectHash)
+                    await (checkpoint with { Complete = true, SourceUriHash = sourceHash, SourceObjectHash = sourceObjectHash })
                         .SaveAsync(validatorPath, restrictedOutputRoot);
-                onTransferProgress?.Invoke(id, new(existing, 0) { TotalLength = state.TotalLength });
+                onTransferProgress?.Invoke(id, new(existing, 0) { TotalLength = checkpoint.TotalLength });
                 return;
             }
         }
-        var changedVersion = expectedResource is not null && localMatches && sameSource
-            && (state!.TotalLength != expectedResource.TotalLength
-                || state.Validator.KnownChanged(expectedResource.Validator));
-        var invalidState = state is not null && !localMatches;
-        var boundedFull = toPosition is not null && (localMatches ? state!.LocalLength : existing) >= toPosition - fromPosition + 1;
-        var append = sameSource && !state!.Complete && !boundedFull && !changedVersion
-            && state.Validator.IsUsable && (expectedResource is null || state.Validator.Matches(expectedResource.Validator));
-        var comparePrefix = existing > 0 && !append && !invalidState && !changedVersion;
-        if (append && existing > state!.LocalLength) comparePrefix = true;
-        var retainedLength = append ? state!.LocalLength : 0;
-        var requestedFrom = append ? checked(fromPosition + retainedLength) : fromPosition;
+        var plan = DeriveResumePlan(state, localMatches, sameSource, existing, fromPosition, toPosition, expectedResource);
+        var changedVersion = plan.ChangedVersion;
+        var invalidState = plan.InvalidState;
+        var boundedFull = plan.BoundedFull;
+        var append = plan.Append;
+        var comparePrefix = plan.ComparePrefix;
+        var retainedLength = plan.RetainedLength;
+        var requestedFrom = plan.RequestedFrom;
+        var requestValidator = plan.RequestValidator;
         var international = BBDownT.Core.Config.COOKIE_IS_INTL;
         using var request = MediaRequestPolicy.CreateRequest(url, international, requestedFrom, toPosition);
-        var requestValidator = expectedResource?.Validator ?? (sameSource ? state!.Validator : null);
         if (requestValidator is { IsUsable: true }) requestValidator.Apply(request);
         var client = httpClient ?? AppHttpClient;
         using var response = await SendMediaRequestAsync(client, request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
         {
             var length = response.Content.Headers.ContentRange?.Length;
-            if (append && toPosition is null && length == requestedFrom && state!.TotalLength == length
-                && state.Validator.Matches(DownloadResumeValidator.FromResponse(response, sourceObjectHash is not null)))
+            if (append && toPosition is null && length == requestedFrom && state is { } completed
+                && completed.TotalLength == length
+                && completed.Validator.Matches(DownloadResumeValidator.FromResponse(response, sourceObjectHash is not null)))
             {
                 local.SetLength(retainedLength);
                 await local.FlushAsync();
-                await (state with { Complete = true, SourceUriHash = sourceHash, SourceObjectHash = sourceObjectHash })
+                await (completed with { Complete = true, SourceUriHash = sourceHash, SourceObjectHash = sourceObjectHash })
                     .SaveAsync(validatorPath, restrictedOutputRoot);
                 onTransferProgress?.Invoke(id, new(retainedLength, 0) { TotalLength = length.Value });
                 return;
@@ -119,9 +128,9 @@ internal static class BBDownTDownloadUtil
                 responseLength, requestedFrom, toPosition);
             totalLength = response.Content.Headers.ContentRange!.Length ?? 0;
             if (totalLength <= 0) throw new InvalidDataException("分片响应未提供有效的总长度");
-            if (append && !state!.Validator.Matches(remoteValidator))
+            if (append && state is { } appended && !appended.Validator.Matches(remoteValidator))
             {
-                if (state.Validator.KnownChanged(remoteValidator))
+                if (appended.Validator.KnownChanged(remoteValidator))
                     throw new InvalidDataException("续传响应的远端实体校验器已变化，已保留本地数据");
                 // A stronger validator appearing is not evidence that the old
                 // bytes match it. Re-read the complete local prefix first.
@@ -183,6 +192,33 @@ internal static class BBDownTDownloadUtil
             }, client.Timeout, cancellationToken,
             update => onTransferProgress?.Invoke(id, update with { TotalLength = totalLength }),
             checkpointVerifiedPrefix: remoteValidator.HasStrongEntityTag);
+    }
+
+    // The resume decision is a pure function of the saved state and the caller's
+    // request: localMatches holds exactly when state exists and verified against
+    // the local bytes, so narrowing once here keeps every flag below free of
+    // null-forgiving operators. The transport segment mutates copies of these
+    // flags (e.g. a 200 response clears Append/ComparePrefix), never the plan.
+    private static ResumePlan DeriveResumePlan(DownloadResumeState? state, bool localMatches, bool sameSource,
+        long existing, long fromPosition, long? toPosition, DownloadResourceMetadata? expectedResource)
+    {
+        var verified = localMatches && state is { } matched ? matched : null;
+        var changedVersion = expectedResource is not null && verified is not null && sameSource
+            && (verified.TotalLength != expectedResource.TotalLength
+                || verified.Validator.KnownChanged(expectedResource.Validator));
+        var invalidState = state is not null && !localMatches;
+        var boundedFull = toPosition is not null
+            && (verified is not null ? verified.LocalLength : existing) >= toPosition - fromPosition + 1;
+        var append = sameSource && verified is not null && !verified.Complete && !boundedFull && !changedVersion
+            && verified.Validator.IsUsable
+            && (expectedResource is null || verified.Validator.Matches(expectedResource.Validator));
+        var comparePrefix = existing > 0 && !append && !invalidState && !changedVersion;
+        if (append && verified is not null && existing > verified.LocalLength) comparePrefix = true;
+        var retainedLength = append && verified is not null ? verified.LocalLength : 0;
+        var requestedFrom = append ? checked(fromPosition + retainedLength) : fromPosition;
+        var requestValidator = expectedResource?.Validator ?? (sameSource && verified is not null ? verified.Validator : null);
+        return new ResumePlan(changedVersion, invalidState, boundedFull, append, comparePrefix,
+            retainedLength, requestedFrom, requestValidator);
     }
 
     // The same streaming state machine is exercised with MemoryStreams in tests.
@@ -351,19 +387,15 @@ internal static class BBDownTDownloadUtil
     {
         config.CancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrEmpty(url)) return;
-        path = OutputPathPolicy.ResolveArtifact(path, config.RestrictedOutputRoot);
-        OutputPathPolicy.ResolveArtifact(path + ".aria2", config.RestrictedOutputRoot);
-        if (config.ForceHttp) url = ReplaceUrl(url);
-        var sourceObjectHash = GetSourceObjectHash(url, config);
-        LogDebug("Start downloading: {0}", url);
-        string desDir = Path.GetDirectoryName(path)!;
+        // The target directory must exist before aria2c runs inside PrepareDownload,
+        // so it is created from the resolved path ahead of the shared preparation.
+        string desDir = Path.GetDirectoryName(OutputPathPolicy.ResolveArtifact(path, config.RestrictedOutputRoot))!;
         if (!string.IsNullOrEmpty(desDir) && !Directory.Exists(desDir)) Directory.CreateDirectory(desDir);
-        if (config.UseAria2c)
-        {
-            await DownloadWithAria2cAsync(url, path, config.Aria2cArgs);
-            Console.WriteLine();
-            return;
-        }
+        var prepared = await PrepareDownload(url, path, config);
+        if (prepared.HandledByAria2c) return;
+        url = prepared.Url;
+        path = prepared.Path;
+        var sourceObjectHash = prepared.SourceObjectHash;
         // Audio and video paths often share a stem; include the extension.
         string tmpName = OutputPathPolicy.ResolveArtifact(Path.Combine(desDir, Path.GetFileName(path) + ".tmp"),
             config.RestrictedOutputRoot);
@@ -372,7 +404,7 @@ internal static class BBDownTDownloadUtil
         {
             metadata ??= await TryGetResourceMetadataAsync(url, httpClient, config.CancellationToken, config.RetryDelay,
                 sourceObjectHash is not null);
-            if (await IsCompletedTrackAsync(url, path, config, metadata))
+            if (await IsCompletedTrackAsync(url, path, config, metadata, sourceObjectHash))
             {
                 config.CancellationToken.ThrowIfCancellationRequested();
                 config.RelatedTask?.ReportProgress(1);
@@ -419,17 +451,11 @@ internal static class BBDownTDownloadUtil
     public static async Task<string[]> MultiThreadDownloadFileAsync(string url, string path, DownloadConfig config, HttpClient? httpClient = null)
     {
         config.CancellationToken.ThrowIfCancellationRequested();
-        path = OutputPathPolicy.ResolveArtifact(path, config.RestrictedOutputRoot);
-        OutputPathPolicy.ResolveArtifact(path + ".aria2", config.RestrictedOutputRoot);
-        if (config.ForceHttp) url = ReplaceUrl(url);
-        var sourceObjectHash = GetSourceObjectHash(url, config);
-        LogDebug("Start downloading: {0}", url);
-        if (config.UseAria2c)
-        {
-            await DownloadWithAria2cAsync(url, path, config.Aria2cArgs);
-            Console.WriteLine();
-            return [];
-        }
+        var prepared = await PrepareDownload(url, path, config);
+        if (prepared.HandledByAria2c) return [];
+        url = prepared.Url;
+        path = prepared.Path;
+        var sourceObjectHash = prepared.SourceObjectHash;
         DownloadResourceMetadata metadata;
         try
         {
@@ -444,7 +470,7 @@ internal static class BBDownTDownloadUtil
         }
         var fileSize = metadata.TotalLength;
         LogDebug("文件大小：{0} bytes", fileSize);
-        if (await IsCompletedTrackAsync(url, path, config, metadata))
+        if (await IsCompletedTrackAsync(url, path, config, metadata, sourceObjectHash))
         {
             config.CancellationToken.ThrowIfCancellationRequested();
             config.RelatedTask?.ReportProgress(1);
@@ -526,6 +552,26 @@ internal static class BBDownTDownloadUtil
         return clipPaths;
     }
 
+    // Shared bootstrap of both download entry points: resolve the artifact paths,
+    // apply the ForceHttp rewrite, derive the source object hash, then hand the
+    // transfer to aria2c when configured. The differing returns stay with the
+    // callers; HandledByAria2c tells them the work is already done.
+    private static async Task<PreparedDownload> PrepareDownload(string url, string path, DownloadConfig config)
+    {
+        path = OutputPathPolicy.ResolveArtifact(path, config.RestrictedOutputRoot);
+        OutputPathPolicy.ResolveArtifact(path + ".aria2", config.RestrictedOutputRoot);
+        if (config.ForceHttp) url = ReplaceUrl(url);
+        var sourceObjectHash = GetSourceObjectHash(url, config);
+        LogDebug("Start downloading: {0}", url);
+        if (config.UseAria2c)
+        {
+            await DownloadWithAria2cAsync(url, path, config.Aria2cArgs);
+            Console.WriteLine();
+            return new PreparedDownload(url, path, sourceObjectHash, true);
+        }
+        return new PreparedDownload(url, path, sourceObjectHash, false);
+    }
+
     internal static async Task MergeTrackClipsAsync(string[] files, string destination, DownloadConfig config)
     {
         if (files.Length == 0) return;
@@ -570,11 +616,11 @@ internal static class BBDownTDownloadUtil
     }
 
     private static async Task<bool> IsCompletedTrackAsync(string url, string path, DownloadConfig config,
-        DownloadResourceMetadata? metadata)
+        DownloadResourceMetadata? metadata, string? sourceObjectHash = null)
     {
         if (metadata is null || !metadata.Validator.IsUsable) return false;
         var state = await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(path + ".resume", config.RestrictedOutputRoot));
-        var sourceObjectHash = GetSourceObjectHash(url, config);
+        sourceObjectHash ??= GetSourceObjectHash(url, config);
         if (!(state is { Complete: true } && state.MatchesSource(url, sourceObjectHash)
             && state.MatchesRange(DownloadResumeState.Scope(url, config.ResourceIdentity), 0, null, metadata.TotalLength)
             && state.Validator.Matches(metadata.Validator) && await state.MatchesFileAsync(path))) return false;
@@ -749,3 +795,9 @@ internal static class BBDownTDownloadUtil
         return url.Replace("https:", "http:");
     }
 }
+
+// Decision output of the resume state machine: what to request and how to treat
+// the local file once a response arrives.
+internal readonly record struct ResumePlan(
+    bool ChangedVersion, bool InvalidState, bool BoundedFull, bool Append,
+    bool ComparePrefix, long RetainedLength, long RequestedFrom, DownloadResumeValidator? RequestValidator);
