@@ -1,0 +1,146 @@
+using System;
+using System.IO;
+using MeowDown.Core.Util;
+using static MeowDown.Core.Logger;
+
+namespace MeowDown;
+
+internal static class LegacyLocalFileMigration
+{
+    private static readonly (string OldName, string NewName)[] Files =
+    [
+        ("BBDown.config", "MeowDown.config"),
+        ("BBDown.data", "MeowDown.data"),
+        ("BBDownTV.data", "MeowDownTV.data"),
+        ("BBDownApp.data", "MeowDownApp.data"),
+        ("BBDown.archives", "MeowDown.archives"),
+        // BBDownT 时代文件名（本分支更名前的旧名），--migrate 时一并兼容
+        ("BBDownT.config", "MeowDown.config"),
+        ("BBDownT.data", "MeowDown.data"),
+        ("BBDownTTV.data", "MeowDownTV.data"),
+        ("BBDownTApp.data", "MeowDownApp.data"),
+        ("BBDownTIntl.data", "MeowDownIntl.data"),
+        ("BBDownT.archives", "MeowDown.archives")
+    ];
+
+    internal interface IFileOperations
+    {
+        bool FileExists(string path);
+        bool DirectoryExists(string path);
+        void Copy(string sourceFileName, string destFileName);
+        void Move(string sourceFileName, string destFileName);
+        void Delete(string path);
+        void RestrictToOwner(string path) { }
+    }
+
+    private sealed class RealFileOperations : IFileOperations
+    {
+        public bool FileExists(string path) => File.Exists(path);
+        public bool DirectoryExists(string path) => Directory.Exists(path);
+        public void Copy(string sourceFileName, string destFileName) => File.Copy(sourceFileName, destFileName);
+        public void Move(string sourceFileName, string destFileName) => File.Move(sourceFileName, destFileName);
+        public void Delete(string path) => File.Delete(path);
+
+        public void RestrictToOwner(string path)
+        {
+            if (OperatingSystem.IsWindows()) return;
+            try
+            {
+                File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                LogWarn($"无法将{Path.GetFileName(path)}设为仅本人可读写：{ErrorText.Describe(error)}");
+            }
+        }
+    }
+
+    // Called only by the explicit migrate command, never during normal startup.
+    internal static int Run(string directory, string? timestamp = null, IFileOperations? operations = null)
+    {
+        operations ??= new RealFileOperations();
+        var migrated = 0;
+        var failed = 0;
+        foreach (var (oldName, newName) in Files)
+        {
+            try
+            {
+                var oldPath = Path.Combine(directory, oldName);
+                if (!operations.FileExists(oldPath)) continue;
+                var newPath = Path.Combine(directory, newName);
+                if (operations.FileExists(newPath))
+                {
+                    Log($"{newName}已存在，跳过{oldName}");
+                    continue;
+                }
+
+                var tempPath = $"{newPath}.migrating-{Guid.NewGuid():N}";
+                var stamp = timestamp ?? DateTime.Now.ToString("yyyyMMddHHmmss");
+                var backupPath = $"{oldPath}.migrated-{stamp}";
+                var index = 1;
+                while (operations.FileExists(backupPath) || operations.DirectoryExists(backupPath))
+                    backupPath = $"{oldPath}.migrated-{stamp}-{index++}";
+
+                var backupCreated = false;
+                try
+                {
+                    operations.Copy(oldPath, tempPath);
+                    operations.RestrictToOwner(tempPath);
+                    operations.Move(oldPath, backupPath);
+                    backupCreated = true;
+                    operations.RestrictToOwner(backupPath);
+                    operations.Move(tempPath, newPath);
+                }
+                catch
+                {
+                    TryDelete(operations, tempPath);
+                    if (backupCreated)
+                    {
+                        if (!operations.FileExists(oldPath) && operations.FileExists(backupPath))
+                            TryMove(operations, backupPath, oldPath);
+                    }
+                    throw;
+                }
+
+                migrated++;
+                Log($"已迁移{oldName} -> {newName}，旧文件备份为{Path.GetFileName(backupPath)}");
+            }
+            catch (Exception error)
+            {
+                failed++;
+                LogWarn($"迁移{oldName}失败: {ErrorText.Describe(error)}");
+            }
+        }
+        Log($"迁移完成：成功{migrated}个，失败{failed}个");
+        return failed == 0 ? 0 : 1;
+    }
+
+    private static void TryDelete(IFileOperations operations, string path)
+    {
+        try
+        {
+            if (!operations.FileExists(path)) return;
+            operations.Delete(path);
+            if (operations.FileExists(path))
+                LogWarn($"迁移临时文件仍然存在 {path}，请手动检查并删除");
+        }
+        catch (Exception error)
+        {
+            LogWarn($"无法清理迁移临时文件 {path}: {ErrorText.Describe(error)}，请手动检查并删除");
+        }
+    }
+
+    private static void TryMove(IFileOperations operations, string sourcePath, string destinationPath)
+    {
+        try
+        {
+            operations.Move(sourcePath, destinationPath);
+            if (operations.FileExists(sourcePath))
+                LogWarn($"迁移备份仍未恢复 {sourcePath} -> {destinationPath}，请手动检查备份文件");
+        }
+        catch (Exception error)
+        {
+            LogWarn($"无法恢复迁移备份 {sourcePath} -> {destinationPath}: {ErrorText.Describe(error)}，请手动检查备份文件");
+        }
+    }
+}
