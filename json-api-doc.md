@@ -2,15 +2,15 @@
 
 ## API
 
-如果以服务器模式启动BBDownT，BBDownT会在本地启动一个http server，该服务器有以下API：
+如果以服务器模式启动MeowDown，MeowDown会在本地启动一个http server，该服务器有以下API：
 
-默认监听地址为`http://127.0.0.1:23333`。监听本机地址时默认不需要Token；监听`0.0.0.0`或其他非本机地址时会启用API Token。Token可以通过`--api-token`或`BBDownT.config`配置，未配置时启动会自动生成。
+默认监听地址为`http://127.0.0.1:23333`。监听本机地址时默认不需要Token；监听`0.0.0.0`或其他非本机地址时会启用API Token。Token可以通过`--api-token`或`MeowDown.config`配置，未配置时启动会自动生成。
 
 需要Token时，请在请求头中携带以下任意一种：
 
 ```text
 Authorization: Bearer <token>
-X-BBDownT-Token: <token>
+X-MeowDown-Token: <token>
 ```
 
 ### 获取任务列表
@@ -180,7 +180,7 @@ DELETE /remove-finished/{id}
 
 ## 服务器配置
 
-以下选项只在`serve`模式下使用，也可以写入`BBDownT.config`：
+以下选项只在`serve`模式下使用，也可以写入`MeowDown.config`：
 
 | 配置 | 说明 |
 | ---- | ---- |
@@ -228,7 +228,7 @@ DELETE /remove-finished/{id}
 
 ### `ServeRequestOptions` 数据结构
 
-参考[BBDownT/Model/ServeRequestOptions.cs](./BBDownT/Model/ServeRequestOptions.cs)和[BBDownT/MyOption.cs](./BBDownT/MyOption.cs)。属性和命令行参数基本对应，相应的值填写命令行会使用的值即可。这个结构会随着版本变化，请参考对应版本的文件。
+参考[MeowDown/Model/ServeRequestOptions.cs](./MeowDown/Model/ServeRequestOptions.cs)和[MeowDown/MyOption.cs](./MeowDown/MyOption.cs)。属性和命令行参数基本对应，相应的值填写命令行会使用的值即可。这个结构会随着版本变化，请参考对应版本的文件。
 
 空间投稿批量下载相关字段：
 
@@ -241,8 +241,8 @@ DELETE /remove-finished/{id}
 
 ## 注意事项
 
-- 由于BBDownT的下载进度回报频率所限，`TotalDownloadedBytes`会比实际下载的文件略低，大概会少等效于1秒下载速度的文件体积，如果文件本身就非常小那这个数字偏差会较大。
-- BBDownT目前内部机制没有太好的方法取消单个下载任务，因此目前任务提交以后只能等任务失败或者完成。
+- 由于MeowDown的下载进度回报频率所限，`TotalDownloadedBytes`会比实际下载的文件略低，大概会少等效于1秒下载速度的文件体积，如果文件本身就非常小那这个数字偏差会较大。
+- MeowDown目前内部机制没有太好的方法取消单个下载任务，因此目前任务提交以后只能等任务失败或者完成。
 - 服务器任务会进入内存队列，程序退出后队列不会保留。
 - callback 默认超时为10秒，失败不改变下载任务本身的成功状态，也不会阻塞后续下载任务。
 

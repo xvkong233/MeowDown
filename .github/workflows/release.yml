@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF_TYPE" = "tag"
-          project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' BBDownT/BBDownT.csproj)
+          project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' MeowDown/MeowDown.csproj)
           test -n "$project_version"
           test "$GITHUB_REF_NAME" = "v${project_version}"
 
@@ -89,5 +89,5 @@ jobs:
               release_flags+=(--prerelease)
             fi
             gh release create "$tag" "${assets[@]}" "${release_flags[@]}" \
-              --title "BBDownT ${tag#v}" --notes-from-tag
+              --title "MeowDown ${tag#v}" --notes-from-tag
           fi

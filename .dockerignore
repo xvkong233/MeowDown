@@ -370,17 +370,17 @@ FodyWeavers.xsd
 # debug log
 debug_*.json
 
-# dotnet run in `BBDownT/` sub folder
-/BBDownT/*.mp4
-/BBDownT/*.xml
-/BBDownT/*.ass
+# dotnet run in `MeowDown/` sub folder
+/MeowDown/*.mp4
+/MeowDown/*.xml
+/MeowDown/*.ass
 
 # local credentials and downloads
 .git/
 **/*.data
-**/BBDownT.config
-**/BBDownT.archives
-**/BBDownT.web.json
-**/BBDownT.outputs
+**/MeowDown.config
+**/MeowDown.archives
+**/MeowDown.web.json
+**/MeowDown.outputs
 **/*.migrated-*
 downloads/

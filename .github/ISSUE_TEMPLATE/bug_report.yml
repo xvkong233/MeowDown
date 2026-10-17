@@ -1,5 +1,5 @@
 name: 问题反馈
-description: 报告 BBDownT 运行异常，提供复现步骤以便排查。
+description: 报告 MeowDown 运行异常，提供复现步骤以便排查。
 title: "[Bug] "
 body:
   - type: markdown
@@ -8,7 +8,7 @@ body:
         感谢反馈！请先更新到所用渠道的最新版本后重试，并搜索已有 Issue，避免重复提交。
         - [Release 下载](https://github.com/LOVAHE/BBDownT/releases)
         - [Actions 构建](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml)
-        - DotnetTool 更新：`dotnet tool update --global BBDownT`
+        - DotnetTool 更新：`dotnet tool update --global MeowDown`
 
         提交前请检查命令、配置、日志和截图，隐藏 Cookie、Token、SESSDATA、bili_jct、ac_time_value 等敏感信息。请勿上传登录凭据文件。
   - type: dropdown
@@ -26,8 +26,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: BBDownT 版本
-      description: 请粘贴 BBDownT --version 的输出；Actions 或自行编译版本请补充构建链接或提交 SHA。无法启动时请填写下载包名称。
+      label: MeowDown 版本
+      description: 请粘贴 MeowDown --version 的输出；Actions 或自行编译版本请补充构建链接或提交 SHA。无法启动时请填写下载包名称。
       placeholder: 版本号 / 构建链接 / 提交 SHA
     validations:
       required: true
@@ -58,7 +58,7 @@ body:
     attributes:
       label: 完整命令
       description: 请保留全部参数，将敏感值替换为 ***。如使用配置文件，请在下方补充相关配置。
-      placeholder: BBDownT "视频地址或 BV 号" --debug
+      placeholder: MeowDown "视频地址或 BV 号" --debug
       render: shell
     validations:
       required: true
@@ -66,7 +66,7 @@ body:
     id: config
     attributes:
       label: 相关配置（可选）
-      description: 如使用 BBDownT.config 或 --config-file，请粘贴与问题相关的配置，并隐藏敏感信息。
+      description: 如使用 MeowDown.config 或 --config-file，请粘贴与问题相关的配置，并隐藏敏感信息。
       render: text
   - type: textarea
     id: reproduction

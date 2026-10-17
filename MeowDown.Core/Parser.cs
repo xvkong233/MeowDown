@@ -1,0 +1,529 @@
+﻿using System.Text;
+using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.IO;
+using static MeowDown.Core.Logger;
+using static MeowDown.Core.Util.HTTPUtil;
+using static MeowDown.Core.Entity.Entity;
+using System.Security.Cryptography;
+using MeowDown.Core.Entity;
+using MeowDown.Core.Util;
+
+namespace MeowDown.Core;
+
+public static partial class Parser
+{
+    private const int RiskControlMaxAttempts = 3;
+    private const int RiskControlRetryDelayMilliseconds = 1000;
+
+    public static string WbiSign(string api)
+    {
+        return $"{api}&w_rid=" + string.Concat(MD5.HashData(Encoding.UTF8.GetBytes(api + Config.WBI)).Select(i => i.ToString("x2")).ToArray());
+    }
+
+    internal static bool IsIntlResponse(JsonElement documentRoot)
+    {
+        return documentRoot.TryGetProperty("data", out var data)
+            && data.ValueKind == JsonValueKind.Object
+            && data.TryGetProperty("video_info", out var videoInfo)
+            && videoInfo.ValueKind == JsonValueKind.Object
+            && videoInfo.TryGetProperty("stream_list", out var streamList)
+            && streamList.ValueKind == JsonValueKind.Array;
+    }
+
+    internal static JsonElement SelectResponseRoot(JsonElement documentRoot)
+    {
+        if (documentRoot.TryGetProperty("result", out var result)
+            && result.ValueKind == JsonValueKind.Object)
+        {
+            if (result.TryGetProperty("video_info", out var videoInfo)
+                && videoInfo.ValueKind == JsonValueKind.Object)
+            {
+                return videoInfo;
+            }
+
+            return result;
+        }
+
+        if (documentRoot.TryGetProperty("data", out var data)
+            && data.ValueKind == JsonValueKind.Object)
+        {
+            return data;
+        }
+
+        return documentRoot;
+    }
+
+    internal static async Task<string> GetPlayJsonAsync(string encoding, string aidOri, string aid, string cid, string epId, bool tvApi, bool intl, bool appApi, string qn = "0", string? audioLanguage = null, Func<string, Task<string>>? fetchWeb = null, string? intlSeasonId = null)
+    {
+        ValidateAudioLanguageMode(audioLanguage, tvApi, intl, appApi);
+        LogDebug("aid={0},cid={1},epId={2},tvApi={3},IntlApi={4},appApi={5},qn={6}", aid, cid, epId, tvApi, intl, appApi, qn);
+
+        if (intl) return await GetIntlPlayJsonAsync(intlSeasonId, aid, cid, epId, appApi, qn, fetchWeb: fetchWeb);
+
+
+        bool cheese = aidOri.StartsWith("cheese:");
+        bool bangumi = cheese || aidOri.StartsWith("ep:");
+        LogDebug("bangumi={0},cheese={1}", bangumi, cheese);
+
+        if (appApi) return await AppHelper.DoReqAsync(aid, cid, epId, bangumi, encoding);
+
+        var fetch = fetchWeb ?? (url => GetWebSourceAsync(url));
+        string prefix = tvApi ? bangumi ? $"{Config.TVHOST}/pgc/player/api/playurltv" : $"{Config.TVHOST}/x/tv/playurl"
+            : bangumi ? $"{Config.HOST}/pgc/player/web/v2/playurl" : "api.bilibili.com/x/player/wbi/playurl";
+        prefix = $"https://{prefix}?";
+
+        string api;
+        if (tvApi)
+        {
+            StringBuilder apiBuilder = new();
+            if (Config.TOKEN != "") apiBuilder.Append($"access_key={Config.TOKEN}&");
+            apiBuilder.Append($"appkey={AppKeys.TvAndroid.Key}&build=106500&cid={cid}&device=android");
+            if (bangumi) apiBuilder.Append($"&ep_id={epId}&expire=0");
+            apiBuilder.Append($"&fnval=4048&fnver=0&fourk=1&mid=0&mobi_app=android_tv_yst");
+            apiBuilder.Append($"&object_id={aid}&platform=android&playurl_type=1&qn={qn}&ts={AppKeys.UnixSeconds()}");
+            api = $"{prefix}{apiBuilder}&sign={AppKeys.TvAndroid.Sign(apiBuilder.ToString())}";
+        }
+        else
+        {
+            if (!bangumi) await WbiKey.EnsureAsync(fetch);
+            // 尝试提高可读性
+            StringBuilder apiBuilder = new();
+            apiBuilder.Append("support_multi_audio=true");
+            // Some PGC v2 BROWSER requests return DRM_UNSUPPORTED. Leave this
+            // optional hint unset: this downloader does not implement a CDM.
+            if (!bangumi || cheese) apiBuilder.Append("&from_client=BROWSER");
+            apiBuilder.Append($"&avid={aid}&cid={cid}&fnval=4048&fnver=0&fourk=1");
+            if (Config.AREA != "") apiBuilder.Append($"&access_key={Config.TOKEN}&area={Config.AREA}");
+            apiBuilder.Append($"&otype=json&qn={qn}");
+            if (bangumi) apiBuilder.Append($"&module=bangumi&ep_id={epId}&session=");
+            if (Config.COOKIE == "") apiBuilder.Append("&try_look=1");
+            if (!string.IsNullOrEmpty(audioLanguage)) apiBuilder.Append($"&cur_language={Uri.EscapeDataString(audioLanguage)}");
+            apiBuilder.Append($"&wts={AppKeys.UnixSeconds()}");
+            api = prefix + (bangumi ? apiBuilder.ToString() : WbiSign(apiBuilder.ToString()));
+        }
+
+        //课程接口
+        if (cheese) api = api.Replace("/pgc/", "/pugv/");
+
+        //Console.WriteLine(api);
+        string webJson = await fetch(api);
+        //以下情况从网页源代码尝试解析
+        if (webJson.Contains("\"大会员专享限制\""))
+        {
+            Log("此视频需要大会员，您大概率需要登录一个有大会员的账号才可以下载，尝试从网页源码解析");
+            string webUrl = "https://www.bilibili.com/bangumi/play/ep" + epId;
+            string webSource = await fetch(webUrl);
+            webJson = PlayerJsonRegex().Match(webSource).Groups[1].Value;
+        }
+        return webJson;
+    }
+
+    private static async Task<string> GetIntlPlayJsonAsync(string? seasonId, string aid, string cid,
+        string epId, bool appApi, string qn, string code = "0", Func<string, Task<string>>? fetchWeb = null)
+    {
+        if (!string.IsNullOrEmpty(aid))
+            return await GetLegacyIntlPlayJsonAsync(aid, cid, epId, qn, code, fetchWeb);
+
+        Task<string> FetchAppAsync() => IntlBangumiAppApi.GetPlayJsonAsync(seasonId ?? "", epId, qn, code, fetchWeb);
+        // A codec variant is requested only after an App-shaped response. WEB
+        // resources have already returned before the variant-fetch branch.
+        if (appApi || code == "1") return await FetchAppAsync();
+
+        var response = await IntlBangumiWebApi.GetPlayJsonAsync(epId, qn,
+            fetchWeb ?? (url => GetWebSourceAsync(url)));
+        using var document = JsonDocument.Parse(response);
+        if (document.RootElement.TryGetProperty("code", out var status)
+            && status.ToString() == "10023014")
+        {
+            Log("当前内容仅在国际版 App 提供，切换至 App 接口解析...");
+            return await FetchAppAsync();
+        }
+        return response;
+    }
+
+    private static async Task<string> GetLegacyIntlPlayJsonAsync(string aid, string cid, string epId, string qn, string code = "0", Func<string, Task<string>>? fetchWeb = null)
+    {
+        var fetch = fetchWeb ?? (url => GetWebSourceAsync(url));
+        bool isBiliPlus = Config.HOST != "api.bilibili.com";
+        string api = $"https://{(isBiliPlus ? Config.HOST : "api.biliintl.com")}/intl/gateway/v2/ogv/playurl?";
+
+        StringBuilder paramBuilder = new();
+        if (Config.TOKEN != "") paramBuilder.Append($"access_key={Config.TOKEN}&");
+        paramBuilder.Append($"aid={aid}");
+        if (isBiliPlus) paramBuilder.Append($"&appkey={AppKeys.BstarAndroid.Key}&area={(Config.AREA == "" ? "th" : Config.AREA)}");
+        paramBuilder.Append($"&cid={cid}&ep_id={epId}&platform=android&prefer_code_type={code}&qn={qn}");
+        if (isBiliPlus) paramBuilder.Append($"&ts={AppKeys.UnixSeconds()}");
+
+        paramBuilder.Append("&s_locale=zh_SG");
+        string param = paramBuilder.ToString();
+        api += (isBiliPlus ? $"{param}&sign={AppKeys.BstarAndroid.Sign(param)}" : param);
+
+        string webJson = await fetch(api);
+        return webJson;
+    }
+
+    public static Task<ParsedResult> ExtractTracksAsync(string aidOri, string aid, string cid, string epId, bool tvApi, bool intlApi, bool appApi, string encoding, string qn, string? audioLanguage, string? intlSeasonId)
+    {
+        return ExtractTracksWithFetcherAsync(
+            aidOri,
+            aid,
+            cid,
+            tvApi,
+            intlApi,
+            appApi,
+            qn,
+            requestedQn => GetPlayJsonAsync(
+                encoding,
+                aidOri,
+                aid,
+                cid,
+                epId,
+                tvApi,
+                intlApi,
+                appApi,
+                requestedQn,
+                audioLanguage,
+                intlSeasonId: intlSeasonId),
+            (requestedQn, code) => GetIntlPlayJsonAsync(intlSeasonId, aid, cid, epId, appApi, requestedQn, code),
+            audioLanguage);
+    }
+
+    private static void ValidateAudioLanguageMode(string? language, bool tvApi, bool intlApi, bool appApi)
+    {
+        if (!string.IsNullOrEmpty(language) && (tvApi || intlApi || appApi))
+            throw new ArgumentException("配音语言选择目前仅支持默认 WEB 解析模式");
+    }
+
+    internal static async Task<ParsedResult> ExtractTracksWithFetcherAsync(
+        string aidOri,
+        string aid,
+        string cid,
+        bool tvApi,
+        bool intlApi,
+        bool appApi,
+        string qn,
+        Func<string, Task<string>> fetchPrimary,
+        Func<string, string, Task<string>> fetchIntlVariant,
+        string? requestedAudioLanguage = null,
+        Func<int, Task>? riskControlDelay = null,
+        Func<bool>? rotateUserAgent = null)
+    {
+        ParsedResult parsedResult = new();
+        riskControlDelay ??= Task.Delay;
+        rotateUserAgent ??= HTTPUtil.PrepareRiskControlRetry;
+
+        Task<string> FetchPrimaryAsync(string requestedQn) =>
+            FetchPlayResponseWithRiskControlRetryAsync(
+                () => fetchPrimary(requestedQn), riskControlDelay, rotateUserAgent);
+
+        Task<string> FetchIntlVariantAsync(string requestedQn, string code) =>
+            FetchPlayResponseWithRiskControlRetryAsync(
+                () => fetchIntlVariant(requestedQn, code), riskControlDelay, rotateUserAgent);
+
+        //调用解析
+        parsedResult.WebJsonString = await FetchPrimaryAsync(qn);
+
+        var data = ParseJsonRoot(parsedResult.WebJsonString);
+        if (intlApi)
+            LogDebug("国际站播放响应已接收：{0} 字符", parsedResult.WebJsonString.Length);
+        else
+            LogDebug(parsedResult.WebJsonString);
+        if (intlApi) IntlBangumiWebApi.EnsurePlaybackSuccess(data);
+        parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(data);
+
+        var context = new ExtractContext
+        {
+            ParsedResult = parsedResult,
+            Data = data,
+            FetchPrimaryAsync = FetchPrimaryAsync,
+            FetchIntlVariantAsync = FetchIntlVariantAsync,
+            RequestedAudioLanguage = requestedAudioLanguage
+        };
+
+        var intlResult = await ExtractIntlTracksAsync(context, intlApi, aid, qn);
+        if (intlResult is not null) return intlResult;
+
+        var root = SelectResponseRoot(context.Data);
+        context.Root = root;
+        if (!HasDash(root) && !HasDurl(root))
+        {
+            BilibiliApi.ThrowIfError(context.Data, "获取播放地址");
+            if (IsRiskControlVoucherResponse(parsedResult.WebJsonString))
+                throw new BilibiliApiException("获取播放地址失败：B站播放接口返回风控凭证(v_voucher)", -352);
+        }
+        AudioLanguageMapper.Map(root, parsedResult, requestedAudioLanguage);
+
+        bool bangumi = aidOri.StartsWith("ep:");
+
+        if (HasDash(root)) //dash
+        {
+            await ExtractDashTracksAsync(context, aid, cid, tvApi, appApi, bangumi);
+            root = context.Root;
+        }
+        else if (HasDurl(root)) //flv
+        {
+            await ExtractDurlTracksAsync(context, qn);
+            root = context.Root;
+        }
+
+        // 番剧片头片尾转分段信息, 预计效果: 正片? -> 片头 -> 正片 -> 片尾
+        if (bangumi)
+        {
+            PlayResponseMapper.MapClipInfo(root, parsedResult);
+        }
+
+        return parsedResult;
+    }
+
+    private sealed class ExtractContext
+    {
+        public required ParsedResult ParsedResult { get; init; }
+        public JsonElement Data { get; set; }
+        public JsonElement Root { get; set; }
+        public JsonElement AudioData { get; set; }
+        public JsonElement AudioRoot { get; set; }
+        public required Func<string, Task<string>> FetchPrimaryAsync { get; init; }
+        public required Func<string, string, Task<string>> FetchIntlVariantAsync { get; init; }
+        public required string? RequestedAudioLanguage { get; init; }
+    }
+
+    /// <summary>
+    /// intl 两段解析（intl WEB 响应与 App 变体响应）。
+    /// 返回非 null 表示 intl 流程已终结，调用方应直接返回该结果；
+    /// 返回 null 表示继续走主流程，此时 <see cref="ExtractContext.Data"/> 已可能被 App 变体响应重赋值。
+    /// </summary>
+    private static async Task<ParsedResult?> ExtractIntlTracksAsync(
+        ExtractContext context,
+        bool intlApi,
+        string aid,
+        string qn)
+    {
+        var parsedResult = context.ParsedResult;
+        var data = context.Data;
+
+        void MapIntlTracks(JsonElement response) =>
+            PlayResponseMapper.MapIntl(
+                response,
+                parsedResult,
+                url => BaseUrlRegex().IsMatch(url),
+                maximumQuality: string.IsNullOrEmpty(aid) ? GetIntlGrantedQuality(response) : null);
+
+        if (intlApi && data.TryGetProperty("data", out var webData)
+            && webData.ValueKind == JsonValueKind.Object
+            && webData.TryGetProperty("playurl", out var playurl) && playurl.ValueKind == JsonValueKind.Object)
+        {
+            PlayResponseMapper.MapIntlWeb(playurl, parsedResult, url => BaseUrlRegex().IsMatch(url));
+            if (parsedResult.VideoTracks.Count == 0 && parsedResult.AudioTracks.Count == 0)
+                throw new InvalidDataException("国际站未返回可用音视频流");
+            return parsedResult;
+        }
+
+        if (intlApi && string.IsNullOrEmpty(aid) && !IsIntlResponse(data))
+            throw new InvalidDataException("国际站未返回可用音视频流");
+
+        //intl接口
+        if (IsIntlResponse(data))
+        {
+            MapIntlTracks(data);
+
+            parsedResult.WebJsonString = await context.FetchIntlVariantAsync(qn, "1");
+            data = ParseJsonRoot(parsedResult.WebJsonString);
+            if (intlApi) IntlBangumiWebApi.EnsurePlaybackSuccess(data);
+            parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(data);
+            context.Data = data;
+            if (IsIntlResponse(data))
+            {
+                MapIntlTracks(data);
+                if (parsedResult.VideoTracks.Count == 0 && parsedResult.AudioTracks.Count == 0)
+                    throw new InvalidDataException("国际站 App 未返回可用音视频流");
+                return parsedResult;
+            }
+        }
+        return null;
+    }
+
+    private static async Task ExtractDashTracksAsync(
+        ExtractContext context,
+        string aid,
+        string cid,
+        bool tvApi,
+        bool appApi,
+        bool bangumi)
+    {
+        var parsedResult = context.ParsedResult;
+        var root = context.Root;
+        int pDur = PlayResponseMapper.GetDurationSeconds(root);
+        var audioData = context.Data;
+        var audioRoot = root;
+
+        PlayResponseMapper.MapDashVideos(
+            root,
+            parsedResult,
+            pDur,
+            tvApi,
+            appApi,
+            url => BaseUrlRegex().IsMatch(url));
+
+        // 此处处理免二压视频，需要单独再请求一次。
+        if (!appApi)
+        {
+            var refetchJson = await context.FetchPrimaryAsync(GetMaxQn());
+            var refetchData = ParseJsonRoot(refetchJson);
+            parsedResult.IsPreviewOnly |= IsPreviewOnlyResponse(refetchData);
+            var refetchRoot = SelectResponseRoot(refetchData);
+            if (HasDash(refetchRoot))
+            {
+                parsedResult.WebJsonString = refetchJson;
+                root = refetchRoot;
+                AudioLanguageMapper.Map(root, parsedResult, context.RequestedAudioLanguage);
+                PlayResponseMapper.MapDashVideos(
+                    root,
+                    parsedResult,
+                    pDur,
+                    tvApi,
+                    appApi,
+                    url => BaseUrlRegex().IsMatch(url));
+                if (PlayResponseMapper.HasDashAudio(root))
+                {
+                    audioData = refetchData;
+                    audioRoot = root;
+                }
+            }
+        }
+
+        PlayResponseMapper.MapDashAudioAndDubbing(
+            audioData,
+            audioRoot,
+            parsedResult,
+            pDur,
+            aid,
+            cid,
+            tvApi,
+            appApi,
+            bangumi,
+            url => BaseUrlRegex().IsMatch(url));
+
+        context.Root = root;
+        context.AudioData = audioData;
+        context.AudioRoot = audioRoot;
+    }
+
+    private static async Task ExtractDurlTracksAsync(ExtractContext context, string qn)
+    {
+        var parsedResult = context.ParsedResult;
+        var root = context.Root;
+        //默认以最高清晰度解析
+        if (qn == "0")
+        {
+            var refetchJson = await context.FetchPrimaryAsync(GetMaxQn());
+            var refetchData = ParseJsonRoot(refetchJson);
+            var refetchRoot = SelectResponseRoot(refetchData);
+            if (HasDurl(refetchRoot) && refetchRoot.TryGetProperty("quality", out _))
+            {
+                // DURL replaces its initial response rather than accumulating tracks.
+                parsedResult.WebJsonString = refetchJson;
+                parsedResult.IsPreviewOnly = IsPreviewOnlyResponse(refetchData);
+                root = refetchRoot;
+                AudioLanguageMapper.Map(root, parsedResult, context.RequestedAudioLanguage);
+            }
+        }
+        PlayResponseMapper.MapDurl(root, parsedResult);
+        context.Root = root;
+    }
+
+    private static bool HasDash(JsonElement root)
+        => root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("dash", out var dash) && dash.ValueKind == JsonValueKind.Object;
+
+    private static bool HasDurl(JsonElement root)
+        => root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("durl", out var durl) && durl.ValueKind == JsonValueKind.Array;
+
+    internal static async Task<string> FetchPlayResponseWithRiskControlRetryAsync(
+        Func<Task<string>> fetch,
+        Func<int, Task> delay,
+        Func<bool> rotateUserAgent)
+    {
+        string response = string.Empty;
+        for (int attempt = 1; attempt <= RiskControlMaxAttempts; attempt++)
+        {
+            response = await fetch();
+            if (!IsRiskControlVoucherResponse(response)) return response;
+
+            if (attempt == RiskControlMaxAttempts)
+            {
+                LogWarn($"B站播放接口持续返回风控凭证(v_voucher)，已自动请求{RiskControlMaxAttempts}次。若本次解析失败，请稍后重试，或通过 --user-agent 指定浏览器User-Agent。");
+                return response;
+            }
+
+            bool rotated = rotateUserAgent();
+            LogWarn(rotated
+                ? $"B站播放接口返回风控凭证(v_voucher)，正在更换User-Agent后重试... ({attempt}/{RiskControlMaxAttempts - 1})"
+                : $"B站播放接口返回风控凭证(v_voucher)，正在重试... ({attempt}/{RiskControlMaxAttempts - 1})");
+            await delay(RiskControlRetryDelayMilliseconds);
+        }
+
+        return response;
+    }
+
+    internal static bool IsRiskControlVoucherResponse(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.TryGetProperty("data", out var data)
+                && data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("v_voucher", out var voucher)
+                && voucher.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(voucher.GetString());
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsPreviewOnlyResponse(JsonElement documentRoot)
+    {
+        static bool HasPreview(JsonElement node)
+        {
+            if (node.ValueKind != JsonValueKind.Object) return false;
+            if (node.TryGetProperty("is_preview", out var preview)
+                && (preview.ValueKind == JsonValueKind.True
+                    || (preview.ValueKind == JsonValueKind.Number
+                        && preview.TryGetInt32(out var value) && value == 1)))
+                return true;
+            return (node.TryGetProperty("video_info", out var info) && HasPreview(info))
+                || (node.TryGetProperty("playurl", out var playurl) && HasPreview(playurl));
+        }
+
+        if (HasPreview(documentRoot)) return true;
+        if (documentRoot.ValueKind != JsonValueKind.Object) return false;
+        return (documentRoot.TryGetProperty("result", out var result) && HasPreview(result))
+            || (documentRoot.TryGetProperty("data", out var data) && HasPreview(data));
+    }
+
+    internal static JsonElement ParseJsonRoot(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
+    }
+
+    private static string GetMaxQn()
+    {
+        return Config.qualitys.Keys.First();
+    }
+
+    private static int? GetIntlGrantedQuality(JsonElement root)
+    {
+        var info = root.GetProperty("data").GetProperty("video_info");
+        return info.TryGetProperty("quality", out var quality)
+            && int.TryParse(quality.ToString(), out var value) && value > 0 ? value : null;
+    }
+
+    [GeneratedRegex("window.__playinfo__=([\\s\\S]*?)<\\/script>")]
+    private static partial Regex PlayerJsonRegex();
+    [GeneratedRegex("http.*:\\d+")]
+    private static partial Regex BaseUrlRegex();
+}

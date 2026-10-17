@@ -4,7 +4,7 @@ WORKDIR /src
 
 COPY . .
 
-RUN dotnet build BBDownT/BBDownT.csproj -c Release
+RUN dotnet build MeowDown/MeowDown.csproj -c Release
 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
 
@@ -14,8 +14,8 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-COPY --from=builder /src/BBDownT/bin/Release/net9.0 .
+COPY --from=builder /src/MeowDown/bin/Release/net9.0 .
 
 EXPOSE 23333
 
-ENTRYPOINT ["/app/BBDownT", "serve", "-l", "http://0.0.0.0:23333"]
+ENTRYPOINT ["/app/MeowDown", "serve", "-l", "http://0.0.0.0:23333"]

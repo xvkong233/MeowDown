@@ -36,7 +36,7 @@ jobs:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
       - name: Test
-        run: dotnet test BBDownT.sln -c Release --nologo
+        run: dotnet test MeowDown.sln -c Release --nologo
 
   build-win-x64-arm64:
     runs-on: windows-latest
@@ -52,15 +52,15 @@ jobs:
 
       - name: Publish [win]
         run: |
-          dotnet publish BBDownT -r win-x64 -c Release -o artifact
-          dotnet publish BBDownT -r win-arm64 -c Release -o artifact-arm64
+          dotnet publish MeowDown -r win-x64 -c Release -o artifact
+          dotnet publish MeowDown -r win-arm64 -c Release -o artifact-arm64
 
       - name: Prepare artifacts [win]
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release-assets | Out-Null
-          Copy-Item artifact/BBDownT.exe release-assets/BBDownT_win-x64.exe
-          Copy-Item artifact-arm64/BBDownT.exe release-assets/BBDownT_win-arm64.exe
+          Copy-Item artifact/MeowDown.exe release-assets/MeowDown_win-x64.exe
+          Copy-Item artifact-arm64/MeowDown.exe release-assets/MeowDown_win-arm64.exe
 
       - name: Upload artifacts [win]
         uses: actions/upload-artifact@v7
@@ -98,7 +98,7 @@ jobs:
               export PATH=\"/opt/dotnet:\$PATH\"
   
               # 编译 Native AOT 输出到挂载的 artifact 目录
-              dotnet publish BBDownT -r linux-x64 -c Release -o /workspace/artifact
+              dotnet publish MeowDown -r linux-x64 -c Release -o /workspace/artifact
             "
       
       - name: Build arm64 in Ubuntu 18.04 container (for glibc 2.27 compatibility)
@@ -120,15 +120,15 @@ jobs:
               export PATH=\"/opt/dotnet:\$PATH\"
   
               # 编译 Native AOT 输出到挂载的 artifact 目录
-              dotnet publish BBDownT -r linux-arm64 -c Release -p:StripSymbols=true -p:CppCompilerAndLinker=clang-9 -p:SysRoot=/crossrootfs/arm64 -o /workspace/artifact-arm64
+              dotnet publish MeowDown -r linux-arm64 -c Release -p:StripSymbols=true -p:CppCompilerAndLinker=clang-9 -p:SysRoot=/crossrootfs/arm64 -o /workspace/artifact-arm64
             "
 
       - name: Prepare artifacts [linux]
         run: |
           mkdir -p release-assets
-          cp artifact/BBDownT release-assets/BBDownT_linux-x64
-          cp artifact-arm64/BBDownT release-assets/BBDownT_linux-arm64
-          chmod +x release-assets/BBDownT_linux-x64 release-assets/BBDownT_linux-arm64
+          cp artifact/MeowDown release-assets/MeowDown_linux-x64
+          cp artifact-arm64/MeowDown release-assets/MeowDown_linux-arm64
+          chmod +x release-assets/MeowDown_linux-x64 release-assets/MeowDown_linux-arm64
 
       - name: Upload artifacts [linux]
         uses: actions/upload-artifact@v7
@@ -150,15 +150,15 @@ jobs:
 
       - name: Publish [osx]
         run: |
-          dotnet publish BBDownT -r osx-x64 -c Release -o artifact
-          dotnet publish BBDownT -r osx-arm64 -c Release -o artifact-arm64
+          dotnet publish MeowDown -r osx-x64 -c Release -o artifact
+          dotnet publish MeowDown -r osx-arm64 -c Release -o artifact-arm64
 
       - name: Prepare artifacts [osx]
         run: |
           mkdir -p release-assets
-          cp artifact/BBDownT release-assets/BBDownT_osx-x64
-          cp artifact-arm64/BBDownT release-assets/BBDownT_osx-arm64
-          chmod +x release-assets/BBDownT_osx-x64 release-assets/BBDownT_osx-arm64
+          cp artifact/MeowDown release-assets/MeowDown_osx-x64
+          cp artifact-arm64/MeowDown release-assets/MeowDown_osx-arm64
+          chmod +x release-assets/MeowDown_osx-x64 release-assets/MeowDown_osx-arm64
 
       - name: Upload artifacts [osx]
         uses: actions/upload-artifact@v7

@@ -1,6 +1,6 @@
 # 分支维护说明（own/v2）
 
-本分支是我们自维护的整合分支，策略：**以 LOVAHE/BBDownT 的 v2 分支为基线，吸收 MOPELotus/BBDown 的修补，保留对 nilaoda/BBDown 上游的追踪能力**。
+本分支是我们自维护的整合分支，产品名 **MeowDown**（2026-10-17 由 BBDownT 更名而来，见文末"更名记录"）。策略：**以 LOVAHE/BBDownT 的 v2 分支为基线，吸收 MOPELotus/BBDown 的修补，保留对 nilaoda/BBDown 上游的追踪能力**。
 
 ## 三个来源
 
@@ -12,16 +12,18 @@
 
 ## 为什么以 BBDownT v2 为基线
 
+> 本节为基线时点（2026-10-16）与 MOPELotus 的对照记录；表中文件路径按当前 MeowDown 命名显示。
+
 经逐项核对，MOPELotus 的实质贡献在 BBDownT v2 中均有等价或更好的实现：
 
-| MOPELotus 的改动 | BBDownT v2 对应物 |
+| MOPELotus 的改动 | BBDownT v2 对应物（现路径） |
 | --- | --- |
-| 登录 cookie 从 Set-Cookie 头提取（白名单解析） | `BBDownTLoginUtil.cs` 同样解析 Set-Cookie，另含国际站登录（`IntlLoginClient`） |
-| `BilibiliCredentialRefresher` 凭据自动续期 | `BBDownTCookieRefreshUtil`（含单元测试 `CookieRefreshTests`） |
+| 登录 cookie 从 Set-Cookie 头提取（白名单解析） | `MeowDownLoginUtil.cs` 同样解析 Set-Cookie，另含国际站登录（`IntlLoginClient`） |
+| `BilibiliCredentialRefresher` 凭据自动续期 | `MeowDownCookieRefreshUtil`（含单元测试 `CookieRefreshTests`） |
 | WBI 签名模块化（`BilibiliWebUtil`） | `BrowserRequestProfile` / `DeviceCookieHandler` 更完整的浏览器指纹模拟 |
 | 版本比较修复 | `ReleaseVersion.TryParse` |
 | 空间投稿批量导出 | `SpaceBatchDownload` 直接支持批量下载 |
-| 测试项目 | `BBDownT.Tests`（1600+ 用例）+ CodeQL |
+| 测试项目 | `MeowDown.Tests`（1600+ 用例）+ CodeQL |
 
 BBDownT v2 还额外修复了上游审计中确认的多处问题（混流退出码丢弃、DOVI 版本判断列索引错误、多 P 归档误跳过、弹幕颜色 RGB/BGR 颠倒、TLS 证书校验全局关闭改为 `ALLOW_INSECURE_TLS` 显式开启、API 服务器无鉴权等），详见各 commit。
 
@@ -34,10 +36,14 @@ BBDownT v2 还额外修复了上游审计中确认的多处问题（混流退出
 
 ## 本分支自有改动
 
-- `BBDownT/BBDownTApiServer.cs`：服务器任务 WorkDir 校验在环境变量展开**之前**拒绝内嵌 NUL 的路径。Windows 的 `ExpandEnvironmentVariables` 经 Win32 会在 NUL 处截断字符串，导致 `Path.GetFullPath` 收到截断后的合法路径，带 NUL 的目录名绕过校验被静默替换为截断名（Linux 上为托管实现、`GetFullPath` 抛异常，故上游测试未暴露此平台差异）。
-- `BBDownT.Tests/IntlMediaRequestTests.cs`：aria2c 参数断言改为用 `Path.GetDirectoryName` 生成期望目录，不再硬编码 POSIX 分隔符，Windows 上可正确运行。
+- `MeowDown/MeowDownApiServer.cs`：服务器任务 WorkDir 校验在环境变量展开**之前**拒绝内嵌 NUL 的路径。Windows 的 `ExpandEnvironmentVariables` 经 Win32 会在 NUL 处截断字符串，导致 `Path.GetFullPath` 收到截断后的合法路径，带 NUL 的目录名绕过校验被静默替换为截断名（Linux 上为托管实现、`GetFullPath` 抛异常，故上游测试未暴露此平台差异）。
+- `MeowDown.Tests/IntlMediaRequestTests.cs`：aria2c 参数断言改为用 `Path.GetDirectoryName` 生成期望目录，不再硬编码 POSIX 分隔符，Windows 上可正确运行。
 
 本机验证：`dotnet build` 0 警告 0 错误；`dotnet test` 1611 通过 / 0 失败 / 9 跳过（跳过项为需要真实网络的协议联调测试）。
+
+## 更名记录（2026-10-17）
+
+产品名由 BBDownT 更名为 **MeowDown**：目录（`MeowDown`/`MeowDown.Core`/`MeowDown.Tests`）、命名空间、类名前缀、程序集与 NuGet 包名（`PackageId=MeowDown`）、命令名（`ToolCommandName=MeowDown`）、磁盘文件名（`MeowDown.data`/`MeowDown.config`/`MeowDown.archives`/`MeowDownIntl.data` 等）全部更替。保留两类不改：上游 LOVAHE/BBDownT 仓库 URL（含自更新 feed）；旧版 BBDown 的 `BBDownTV.data` 等遗留文件名。`--migrate` 的迁移表新增 BBDownT 时代文件名 → MeowDown 文件名的映射，BBDownT 老用户凭据可无缝迁移；`SelfUpdater` 的资产名模式随更名变为 `MeowDown_*`，在上游 feed 中将匹配不到资产，表现为"已是最新版本"，属预期降级。CI 的 `publish-nuget.yml` 会以 `MeowDown` 包名推送，在 NuGet 上取得该 id 所有权之前发布会失败。
 
 ## 构建注意（Windows，仅装了 .NET 10 运行时时）
 

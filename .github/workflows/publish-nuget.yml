@@ -15,7 +15,7 @@ env:
 
 jobs:
   publish:
-    name: Publish BBDownT
+    name: Publish MeowDown
     runs-on: ubuntu-latest
     environment: nuget
 
@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' BBDownT/BBDownT.csproj)
+          project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' MeowDown/MeowDown.csproj)
           test -n "$project_version"
           test "$GITHUB_REF_NAME" = "v${project_version}"
 
@@ -55,13 +55,13 @@ jobs:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
       - name: Restore
-        run: dotnet restore BBDownT.sln
+        run: dotnet restore MeowDown.sln
 
       - name: Build
-        run: dotnet build BBDownT.sln -c Release -m:1 --no-restore
+        run: dotnet build MeowDown.sln -c Release -m:1 --no-restore
 
       - name: Pack
-        run: dotnet pack BBDownT/BBDownT.csproj -c Release -o artifacts --no-build
+        run: dotnet pack MeowDown/MeowDown.csproj -c Release -o artifacts --no-build
 
       - name: NuGet login
         id: login

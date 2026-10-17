@@ -1,0 +1,455 @@
+using MeowDown.Core;
+using MeowDown.Core.Entity;
+using System.CommandLine;
+using static MeowDown.Core.Entity.Entity;
+
+namespace MeowDown.Tests;
+
+public class OptionBehaviorTests
+{
+    [Fact]
+    public void CookieTrust_ExtendsOnlyToApiHostsConfiguredOnTheCommandLine()
+    {
+        var domains = Config.COOKIE_ALLOWED_DOMAINS;
+        var (host, epHost, tvHost, cookie, token) = (Config.HOST, Config.EPHOST, Config.TVHOST, Config.COOKIE, Config.TOKEN);
+        try
+        {
+            Config.COOKIE_ALLOWED_DOMAINS = ["bilibili.com"];
+            Program.SetUpWork(new MyOption { Url = "BV1xx411c7mD", OnlyShowInfo = true, Host = "proxy.example.test", TvHost = "tv.example.test" });
+            Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true, EpHost = "task.example.test" });
+
+            Assert.Contains("proxy.example.test", Config.COOKIE_ALLOWED_DOMAINS);
+            Assert.DoesNotContain("tv.example.test", Config.COOKIE_ALLOWED_DOMAINS);
+            Assert.DoesNotContain("task.example.test", Config.COOKIE_ALLOWED_DOMAINS);
+        }
+        finally
+        {
+            Config.COOKIE_ALLOWED_DOMAINS = domains;
+            (Config.HOST, Config.EPHOST, Config.TVHOST, Config.COOKIE, Config.TOKEN) = (host, epHost, tvHost, cookie, token);
+        }
+    }
+
+    [Fact]
+    public void ServeDebug_StaysOnForTasksThatDoNotAskForIt()
+    {
+        using var state = new WorkStateScope();
+        Program.ServerDebug = true;
+        Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true });
+        Assert.True(Config.DEBUG_LOG);
+
+        Program.SetUpWork(new MyOption { Url = "BV1xx411c7mD", OnlyShowInfo = true });
+        Assert.False(Config.DEBUG_LOG);
+
+        Program.ServerDebug = false;
+        Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true, Debug = true });
+        Assert.True(Config.DEBUG_LOG);
+        Program.SetUpWork(new ServeRequestOptions { Url = "BV1xx411c7mD", OnlyShowInfo = true });
+        Assert.False(Config.DEBUG_LOG);
+    }
+
+    [Fact]
+    public void TokenFile_IsTrimmedAndDoesNotReplaceALoadedToken()
+    {
+        var directory = Directory.CreateTempSubdirectory("bbdownt-token-").FullName;
+        var token = Config.TOKEN;
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "MeowDownTV.data"), "access_token=tv-token\r\n");
+            File.WriteAllText(Path.Combine(directory, "MeowDownApp.data"), "access_token=app-token");
+            Config.TOKEN = "";
+
+            Program.LoadTokenFile(directory, "MeowDownTV.data");
+            Program.LoadTokenFile(directory, "MeowDownApp.data");
+
+            Assert.Equal("tv-token", Config.TOKEN);
+        }
+        finally
+        {
+            Config.TOKEN = token;
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void AudioAndVideoOnly_KeepBothStreamsAndEnableSkipMux()
+    {
+        var option = new MyOption { AudioOnly = true, VideoOnly = true };
+        var result = CreateParsedResult();
+
+        Program.HandleConflictingOptions(option);
+        Program.ApplyDashStreamSelection(option, result);
+
+        Assert.True(option.AudioOnly);
+        Assert.True(option.VideoOnly);
+        Assert.True(option.SkipMux);
+        Assert.Single(result.VideoTracks);
+        Assert.Single(result.AudioTracks);
+        Assert.Empty(result.BackgroundAudioTracks);
+        Assert.Empty(result.RoleAudioList);
+        Assert.False(Program.NeedsMuxer(option));
+    }
+
+    [Theory]
+    [InlineData(true, false, 0, 1)]
+    [InlineData(false, true, 1, 0)]
+    public void IndividualStreamOnlyOption_RemainsExclusive(
+        bool audioOnly,
+        bool videoOnly,
+        int expectedVideoCount,
+        int expectedAudioCount)
+    {
+        var option = new MyOption { AudioOnly = audioOnly, VideoOnly = videoOnly };
+        var result = CreateParsedResult();
+
+        Program.ApplyDashStreamSelection(option, result);
+
+        Assert.Equal(expectedVideoCount, result.VideoTracks.Count);
+        Assert.Equal(expectedAudioCount, result.AudioTracks.Count);
+    }
+
+    [Theory]
+    [InlineData(1, "01")]
+    [InlineData(7, "07")]
+    [InlineData(10, "10")]
+    [InlineData(100, "100")]
+    [InlineData(1000, "1000")]
+    public void FixedPageNumberPadding_UsesAtLeastTwoDigitsWithoutTruncation(int index, string expected)
+    {
+        var page = new Page(index, "2", "3", "", "part", 1, 0);
+
+        var path = Program.FormatSavePath(
+            "[P<pageNumberWithZero:2>]",
+            "title",
+            null,
+            null,
+            page,
+            pagesCount: Math.Max(index, 120),
+            "WEB",
+            0);
+
+        Assert.Equal($"[P{expected}].mp4", path);
+    }
+
+    [Fact]
+    public void PageNumberPadding_UsesOriginalTotalPageCount()
+    {
+        var page = new Page(7, "2", "3", "", "part", 1, 0);
+
+        var path = Program.FormatSavePath("[P<pageNumberWithZero>]", "title", null, null,
+            page, 120, "WEB", 0);
+
+        Assert.Equal("[P007].mp4", path);
+    }
+
+    [Theory]
+    [InlineData(1, "7")]
+    [InlineData(2, "07")]
+    [InlineData(3, "007")]
+    [InlineData(10, "0000000007")]
+    public void FixedPageNumberPadding_UsesTheRequestedMinimumWidth(int width, string expected)
+    {
+        var page = new Page(7, "2", "3", "", "part", 1, 0);
+
+        var path = Program.FormatSavePath($"[P<pageNumberWithZero:{width}>]", "title", null, null,
+            page, 8, "WEB", 0);
+
+        Assert.Equal($"[P{expected}].mp4", path);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("11")]
+    [InlineData("999999999999999999999")]
+    [InlineData("abc")]
+    [InlineData("")]
+    [InlineData("+2")]
+    [InlineData(" 2")]
+    [InlineData("2 ")]
+    [InlineData("1 0")]
+    [InlineData("2\n")]
+    [InlineData("<pageNumber>")]
+    public void FixedPageNumberPadding_RejectsInvalidWidths(string width)
+    {
+        var page = new Page(7, "2", "3", "", "part", 1, 0);
+
+        Assert.Throws<ArgumentException>(() => Program.FormatSavePath(
+            $"[P<pageNumberWithZero:{width}>]", "title", null, null, page, 8, "WEB", 0));
+    }
+
+    [Theory]
+    [InlineData(8)]
+    [InlineData(12)]
+    [InlineData(120)]
+    [InlineData(1200)]
+    public void DefaultPageName_RemainsStableAsTheTotalPageCountGrows(int totalPages)
+    {
+        var page = new Page(8, "2", "3", "", "part", 1, 0);
+
+        var path = Program.FormatSavePath(Program.MultiPageDefaultSavePath, "title", null, null,
+            page, totalPages, "WEB", 0);
+
+        Assert.Equal("title/[P08]part.mp4", path);
+    }
+
+    [Fact]
+    public void UnpaddedPageNumber_RemainsAvailableInCustomTemplates()
+    {
+        var page = new Page(8, "2", "3", "", "part", 1, 0);
+
+        var path = Program.FormatSavePath("[P<pageNumber>]", "title", null, null,
+            page, 120, "WEB", 0);
+
+        Assert.Equal("[P8].mp4", path);
+    }
+
+    [Fact]
+    public void NoPaddingOption_RemovesTheFixedWidthFromTheDefaultTemplate()
+    {
+        var original = Program.MultiPageDefaultSavePath;
+        try
+        {
+            Program.MultiPageDefaultSavePath = "<videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>";
+            Program.HandleDeprecatedOptions(new MyOption { NoPaddingPageNum = true });
+            var page = new Page(8, "2", "3", "", "part", 1, 0);
+
+            var path = Program.FormatSavePath(Program.MultiPageDefaultSavePath, "title", null, null,
+                page, 120, "WEB", 0);
+
+            Assert.Equal("title/[P8]part.mp4", path);
+        }
+        finally
+        {
+            Program.MultiPageDefaultSavePath = original;
+        }
+    }
+
+    [Theory]
+    [InlineData(new[] { "BV1xx411c7mD", "-e", "HEVC", "-q", "1080P" }, true)]
+    [InlineData(new[] { "BV1xx411c7mD", "--dfn-priority=1080P", "--encoding-priority=HEVC" }, false)]
+    [InlineData(new[] { "BV1xx411c7mD", "-e", "HEVC" }, true)]
+    [InlineData(new[] { "BV1xx411c7mD", "-q", "1080P" }, false)]
+    public async Task CommandLinePriority_UsesWrittenAliasOrder(string[] arguments, bool encodingFirst)
+    {
+        MyOption? captured = null;
+        var command = CommandLineInvoker.GetRootCommand(option =>
+        {
+            captured = option;
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(0, await command.InvokeAsync(arguments));
+        Assert.NotNull(captured);
+        Assert.Equal(encodingFirst, captured.EncodingPriorityFirst);
+    }
+
+    [Theory]
+    [InlineData(true, "", "-e HEVC\n-q 1080P\n")]
+    [InlineData(true, "", "--encoding-priority=HEVC\n--dfn-priority=1080P\n")]
+    [InlineData(false, "", "-q 1080P\n-e HEVC\n")]
+    [InlineData(true, "-e HEVC", "-q 1080P\n")]
+    [InlineData(false, "-q 1080P", "-e HEVC\n")]
+    public async Task PriorityOrder_FollowsTheCommandLineThenTheConfigFile(bool encodingFirst, string commandLine, string config)
+    {
+        var path = Path.GetTempFileName();
+        await File.WriteAllTextAsync(path, config);
+        MyOption? captured = null;
+        var command = CommandLineInvoker.GetRootCommand(option =>
+        {
+            captured = option;
+            return Task.CompletedTask;
+        });
+        var arguments = new List<string> { "BV1xx411c7mD" };
+        arguments.AddRange(commandLine.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        arguments.AddRange(["--config-file", path]);
+        try
+        {
+            Assert.True(MeowDownConfigParser.HandleConfig(arguments, command));
+            Assert.Equal(0, await command.InvokeAsync(arguments.ToArray()));
+            Assert.NotNull(captured);
+            Assert.Equal(encodingFirst, captured.EncodingPriorityFirst);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void VideoSorting_UsesSelectedPrimaryPriority()
+    {
+        var videos = new List<Video>
+        {
+            CreateVideo("80", "1080P", "AVC"),
+            CreateVideo("64", "720P", "HEVC")
+        };
+        var qualityPriority = new Dictionary<string, int> { ["1080P"] = 0, ["720P"] = 1 };
+        var encodingPriority = new Dictionary<string, byte> { ["HEVC"] = 0, ["AVC"] = 1 };
+
+        var encodingFirst = Program.SortTracks(videos, qualityPriority, encodingPriority, false, true);
+        var qualityFirst = Program.SortTracks(videos, qualityPriority, encodingPriority, false, false);
+
+        Assert.Equal("HEVC", encodingFirst[0].codecs);
+        Assert.Equal("1080P", qualityFirst[0].dfn);
+    }
+
+    [Theory]
+    [InlineData(null, "129")]
+    [InlineData("HDR Vivid", "129")]
+    [InlineData("8K 超高清", "127")]
+    public void VideoSorting_HdrVividSupportsDefaultAndExplicitQualityPriority(string? preferredQuality, string expectedId)
+    {
+        var videos = new List<Video>
+        {
+            CreateVideo("127", Config.qualitys["127"], "HEVC"),
+            CreateVideo("129", Config.qualitys["129"], "HEVC"),
+            CreateVideo("125", Config.qualitys["125"], "HEVC")
+        };
+        var qualityPriority = new Dictionary<string, int>();
+        if (preferredQuality != null) qualityPriority[preferredQuality] = 0;
+
+        var sorted = Program.SortTracks(videos, qualityPriority, new(), false, false);
+
+        Assert.Equal(expectedId, sorted[0].id);
+    }
+
+    [Fact]
+    public async Task CommandLine_HdrVividPriorityIsAppliedBeforeFallbackQuality()
+    {
+        MyOption? captured = null;
+        var command = CommandLineInvoker.GetRootCommand(option =>
+        {
+            captured = option;
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(0, await command.InvokeAsync([
+            "BV1xx411c7mD", "-q", "HDR Vivid,8K 超高清", "-info"]));
+        Assert.NotNull(captured);
+
+        var dfnPriority = Program.ParseDfnPriority(captured);
+        var encodingPriority = Program.ParseEncodingPriority(captured, out _);
+        var videos = new List<Video>
+        {
+            CreateVideo("127", Config.qualitys["127"], "HEVC"),
+            CreateVideo("129", Config.qualitys["129"], "HEVC")
+        };
+        var sorted = Program.SortTracks(videos, dfnPriority, encodingPriority,
+            captured.VideoAscending, captured.EncodingPriorityFirst);
+
+        Assert.Equal("129", sorted[0].id);
+        Assert.Equal(0, dfnPriority["HDR Vivid"]);
+        Assert.Equal(1, dfnPriority["8K 超高清"]);
+    }
+
+    [Theory]
+    [InlineData(",")]
+    [InlineData(" , ")]
+    public async Task EmptyEncodingPriority_BehavesLikeNoPriority(string value)
+    {
+        MyOption? captured = null;
+        var command = CommandLineInvoker.GetRootCommand(option =>
+        {
+            captured = option;
+            return Task.CompletedTask;
+        });
+
+        Assert.Equal(0, await command.InvokeAsync(["BV1xx411c7mD", "-e", value, "-info"]));
+        Assert.NotNull(captured);
+
+        Assert.Empty(Program.ParseEncodingPriority(captured, out var firstEncoding));
+        Assert.Equal("", firstEncoding);
+    }
+
+    [Fact]
+    public void InvalidDateFormat_IsReportedByTheFormat()
+    {
+        var page = new Page(1, "2", "3", "", "part", 1, 0);
+        var originalOutput = Console.Out;
+        using var output = new StringWriter();
+        string path;
+        try
+        {
+            Console.SetOut(output);
+            path = Program.FormatSavePath("<publishDate:x>", "title", null, null, page, 1, "WEB", 1700000000);
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+        }
+
+        Assert.Equal("1700000000.mp4", path);
+        Assert.Contains("日期格式无效: x", output.ToString());
+    }
+
+    [Fact]
+    public async Task SkipMuxTask_RecordsOnlyExistingNonEmptyStreamFiles()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"bbdownt-streams-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var videoPath = Path.Combine(directory, "video.mp4");
+        var audioPath = Path.Combine(directory, "audio.m4a");
+        var emptyPath = Path.Combine(directory, "empty.m4a");
+        var missingPath = Path.Combine(directory, "missing.m4a");
+        var task = new DownloadTask("2", "BV1xx411c7mD", 1);
+        try
+        {
+            await File.WriteAllTextAsync(videoPath, "video");
+            await File.WriteAllTextAsync(audioPath, "audio");
+            await File.WriteAllTextAsync(emptyPath, "");
+
+            Program.RecordDownloadedStreams(task, videoPath, audioPath, emptyPath, missingPath, "");
+
+            Assert.Equal(new[] { videoPath, audioPath }, task.CreateSnapshot().SavePaths);
+        }
+        finally
+        {
+            if (File.Exists(videoPath)) File.Delete(videoPath);
+            if (File.Exists(audioPath)) File.Delete(audioPath);
+            if (File.Exists(emptyPath)) File.Delete(emptyPath);
+            Directory.Delete(directory);
+        }
+    }
+
+    private static ParsedResult CreateParsedResult()
+    {
+        var audio = new Audio
+        {
+            id = "30280",
+            dfn = "192K",
+            baseUrl = "audio",
+            codecs = "M4A",
+            bandwith = 192000,
+            dur = 1
+        };
+        return new ParsedResult
+        {
+            VideoTracks = [CreateVideo("80", "1080P", "AVC")],
+            AudioTracks = [audio],
+            BackgroundAudioTracks = [audio],
+            RoleAudioList =
+            [
+                new AudioMaterialInfo
+                {
+                    title = "role",
+                    personName = "person",
+                    path = "role.m4a",
+                    audio = [audio]
+                }
+            ]
+        };
+    }
+
+    private static Video CreateVideo(string id, string dfn, string codecs)
+    {
+        return new Video
+        {
+            id = id,
+            dfn = dfn,
+            baseUrl = "video",
+            codecs = codecs,
+            bandwith = 1,
+            dur = 1
+        };
+    }
+}

@@ -1,0 +1,35 @@
+syntax = "proto2";
+option csharp_namespace = "MeowDown.Core.Protobuf";
+
+message VideoSubtitle {
+    optional string lan = 1;
+    optional string lanDoc = 2;
+    repeated SubtitleItem subtitles = 3;
+
+}
+
+message SubtitleWebReply {
+    optional VideoSubtitle subtitle = 1;
+}
+
+message SubtitleItem {
+    optional UserInfo author = 6;
+    optional int64 id = 1;
+    optional string idStr = 2;
+    optional string lanDoc = 4;
+    optional string lan = 3;
+    optional string subtitleUrl = 5;
+    optional int32 type = 7;
+    optional string lanDocBrief = 8;
+    optional int32 aiType = 9;
+    optional int32 aiStatus = 10;
+}
+
+message UserInfo {
+    optional string face = 4;
+    optional int64 mid = 1;
+    optional string name = 2;
+    optional int32 rank = 6;
+    optional string sex = 3;
+    optional string sign = 5;
+}

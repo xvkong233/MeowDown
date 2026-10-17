@@ -28,7 +28,7 @@ jobs:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
       - name: Restore
-        run: dotnet restore BBDownT.sln
+        run: dotnet restore MeowDown.sln
 
       - name: Test
-        run: dotnet test BBDownT.sln -c Release --no-restore --nologo
+        run: dotnet test MeowDown.sln -c Release --no-restore --nologo

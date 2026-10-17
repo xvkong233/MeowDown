@@ -1,11 +1,10 @@
-[![img](https://img.shields.io/github/stars/LOVAHE/BBDownT?label=%E7%82%B9%E8%B5%9E)](https://github.com/LOVAHE/BBDownT)  [![img](https://img.shields.io/github/last-commit/LOVAHE/BBDownT?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4)](https://github.com/LOVAHE/BBDownT/commits)  [![img](https://img.shields.io/github/release/LOVAHE/BBDownT?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/LOVAHE/BBDownT/releases)  [![img](https://img.shields.io/github/license/LOVAHE/BBDownT?label=%E8%AE%B8%E5%8F%AF%E8%AF%81)](https://github.com/LOVAHE/BBDownT)  [![Build Latest](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml/badge.svg)](https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml)  [![CodeQL](https://github.com/LOVAHE/BBDownT/actions/workflows/codeql.yml/badge.svg?branch=v2)](https://github.com/LOVAHE/BBDownT/actions/workflows/codeql.yml)
 
 > 本项目仅供个人学习、研究和非商业性用途。使用本工具时，需自行确保遵守相关法律法规，特别是与版权相关的法律条款。开发者不对因使用本工具而产生的任何版权纠纷或法律责任承担责任。请谨慎使用，并仅在有合法授权的情况下使用相关内容。
 
-# BBDownT
+# MeowDown
 一个命令行式哔哩哔哩下载器. Bilibili Downloader.
 
-本项目接手自 [BBDown](https://github.com/nilaoda/BBDown)，后续项目名称、命令和文档均以 `BBDownT` 为准。
+> 传承链路：[BBDown](https://github.com/nilaoda/BBDown)（nilaoda，已归档）→ [BBDownT](https://github.com/LOVAHE/BBDownT)（LOVAHE）→ **MeowDown**（本分支）。MeowDown 以 BBDownT v2 为基线整合维护，项目名、命令和文档以 `MeowDown` 为准；向上游两代作者致谢。
 
 # 注意
 本软件混流时需要外部程序：
@@ -14,45 +13,45 @@
 * 杜比视界：ffmpeg5.0以上或新版mp4box.
 
 # 快速开始
-本软件已经以 [Dotnet Tool](https://www.nuget.org/packages/BBDownT/) 形式发布。
+本软件已经以 [Dotnet Tool](https://www.nuget.org/packages/MeowDown/) 形式发布。
 
 如果你本地有dotnet环境，使用如下命令即可安装使用
 ```
-dotnet tool install --global BBDownT
+dotnet tool install --global MeowDown
 ```
 
-如果需要更新BBDownT，使用如下命令
+如果需要更新MeowDown，使用如下命令
 ```
-dotnet tool update --global BBDownT
+dotnet tool update --global MeowDown
 ```
 
-独立二进制可运行 `BBDownT --update`（改名后如 `bbd --update`）更新到最新正式版。
+独立二进制可运行 `MeowDown --update`（改名后如 `bbd --update`）更新到最新正式版。
 
 # 迁移
 
-如果你使用的是BBDown，并且想更新至BBDownT，不需要繁琐的重新配置，可以直接使用迁移命令完成一键迁移。
+如果你使用的是BBDown，并且想更新至MeowDown，不需要繁琐的重新配置，可以直接使用迁移命令完成一键迁移。
 
-首先将BBDownT放到老的BBDown目录内，使用一键命令
+首先将MeowDown放到老的BBDown目录内，使用一键命令
 
 ```bash
-BBDownT --migrate
+MeowDown --migrate
 ```
 
 （迁移时会跳过已存在的目标文件）迁移成功后，旧文件会改名为带 `.migrated-时间戳` 后缀的备份。
 
 # 下载
-Release版本：https://github.com/LOVAHE/BBDownT/releases
+上游 Release 版本：https://github.com/LOVAHE/BBDownT/releases（MeowDown 尚未单独发布，可自行构建）
 
-自动构建产物：https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml
+上游自动构建产物：https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml
 
 # 开始使用
 目前命令行参数支持情况
 ```
 Description:
-  BBDownT是一个免费且便捷高效的哔哩哔哩下载/解析软件.
+  MeowDown是一个免费且便捷高效的哔哩哔哩下载/解析软件.
 
 Usage:
-  BBDownT <url> [command] [options]
+  MeowDown <url> [command] [options]
 
 Arguments:
   <url>  视频地址 或 av|bv|BV|ep|ss
@@ -136,8 +135,8 @@ Options:
   --ep-host <ep-host>                            指定BiliPlus EP host(用于代理api.bilibili.com/pgc/view/web/season, 大部分解析服务器不支持代理该接口)
   --tv-host <tv-host>                            自定义tv端接口请求Host(用于代理api.snm0516.aisee.tv)
   --area <area>                                  (hk|tw|th) 使用BiliPlus时必选, 指定BiliPlus area
-  --config-file <config-file>                    读取指定的BBDownT本地配置文件(默认为: BBDownT.config)
-  --migrate                                      将程序目录中的旧版BBDown配置、登录文件和下载归档迁移为BBDownT文件
+  --config-file <config-file>                    读取指定的MeowDown本地配置文件(默认为: MeowDown.config)
+  --migrate                                      将程序目录中的旧版BBDown配置、登录文件和下载归档迁移为MeowDown文件
   --api-token <api-token>                        服务器API鉴权Token，监听非本机地址且未配置时会自动生成
   --version                                      检查当前版本
   --update                                       更新到最新版本
@@ -179,15 +178,15 @@ Commands:
 
 ---
 
-在`1.4.9`或更高版本中，BBDownT支持读取本地配置文件以简化命令行的手动输入。
+在`1.4.9`或更高版本中，MeowDown支持读取本地配置文件以简化命令行的手动输入。
 
-如果没有指定`--config-file`，则默认读取程序同目录下的`BBDownT.config`文件；若指定该参数，则读取对应文件。
+如果没有指定`--config-file`，则默认读取程序同目录下的`MeowDown.config`文件；若指定该参数，则读取对应文件。
 
-普通启动只读取BBDownT自己的配置文件，不会自动探测、迁移旧版BBDown的配置、登录文件或下载归档。
+普通启动只读取MeowDown自己的配置文件，不会自动探测、迁移旧版BBDown的配置、登录文件或下载归档。
 
 一个典型的配置文件:
 ```config
-#本文件是BBDownT程序的配置文件
+#本文件是MeowDown程序的配置文件
 #以#开头的都会被程序忽略
 #然后剩余非空白内容程序逐行读取，对于一个选项，其参数应当在下一行出现
 
@@ -215,18 +214,24 @@ Commands:
 
 如果需要继续使用旧版 BBDown 的配置、登录信息或下载归档，请单独执行：
 ```
-BBDownT --migrate
+MeowDown --migrate
 ```
 
 迁移程序所在目录中的文件，映射关系如下：
 
 | 旧文件 | 新文件 |
 | --- | --- |
-| `BBDown.config` | `BBDownT.config` |
-| `BBDown.data` | `BBDownT.data` |
-| `BBDownTV.data` | `BBDownTTV.data` |
-| `BBDownApp.data` | `BBDownTApp.data` |
-| `BBDown.archives` | `BBDownT.archives` |
+| `BBDown.config` | `MeowDown.config` |
+| `BBDown.data` | `MeowDown.data` |
+| `BBDownTV.data` | `MeowDownTV.data` |
+| `BBDownApp.data` | `MeowDownApp.data` |
+| `BBDown.archives` | `MeowDown.archives` |
+| `BBDownT.config` | `MeowDown.config` |
+| `BBDownT.data` | `MeowDown.data` |
+| `BBDownTTV.data` | `MeowDownTV.data` |
+| `BBDownTApp.data` | `MeowDownApp.data` |
+| `BBDownTIntl.data` | `MeowDownIntl.data` |
+| `BBDownT.archives` | `MeowDown.archives` |
 
 如果目标文件已经存在，程序会跳过该项，不会覆盖目标文件。迁移成功后，原文件会改名为带有`.migrated-时间戳`后缀的备份文件。迁移过程中出现错误时，命令会返回非零状态。
 
@@ -241,7 +246,7 @@ BBDownT --migrate
 
 ---
 
-在`1.4.9`或更高版本中，BBDownT支持自定义合并时的文件名组成。
+在`1.4.9`或更高版本中，MeowDown支持自定义合并时的文件名组成。
 |  代码   | 含义  |
 |  ----  | ----  |
 `<videoTitle>`|视频主标题
@@ -273,13 +278,13 @@ BBDownT --migrate
   
 扫码登录网页账号：
 ```
-BBDownT login
+MeowDown login
 ```
 然后按照提示操作。登录成功后会同时保存用于刷新Cookie的`ac_time_value`，后续运行时会在需要时自动刷新本地Cookie。
 
 扫码登录云视听小电视账号：
 ```
-BBDownT logintv
+MeowDown logintv
 ```
 然后按照提示操作
  
@@ -287,13 +292,13 @@ BBDownT logintv
 
 手动加载网页cookie：
 ```
-BBDownT -c "SESSDATA=******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown -c "SESSDATA=******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
-如需手动Cookie也支持自动刷新，请同时包含`bili_jct`和`ac_time_value`。旧版本生成的`BBDownT.data`如果缺少`ac_time_value`，需要重新执行一次`BBDownT login`。
+如需手动Cookie也支持自动刷新，请同时包含`bili_jct`和`ac_time_value`。旧版本生成的`MeowDown.data`如果缺少`ac_time_value`，需要重新执行一次`MeowDown login`。
 
 手动加载云视听小电视token：
 ```
-BBDownT -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 
 </details>
@@ -303,16 +308,16 @@ BBDownT -tv -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 
 ---
 
-> TV登录产生的`access_token`也可以给APP接口使用。可复制`BBDownTTV.data`到`BBDownTApp.data`使程序自动读取.
+> TV登录产生的`access_token`也可以给APP接口使用。可复制`MeowDownTV.data`到`MeowDownApp.data`使程序自动读取.
 
 目前程序无法自动获取鉴权信息，推荐通过**抓包**来获取.
 
 在请求Header中寻找键为`authorization`的项，其值形为`identify_v1 5227************1`，其中的`5227************1`就是token(access_key)
 
-获取后手动通过`-token`命令加载, 或写入`BBDownTApp.data`使程序自动读取.
+获取后手动通过`-token`命令加载, 或写入`MeowDownApp.data`使程序自动读取.
   
 ```
-BBDownT -app -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown -app -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 
 </details>
@@ -324,33 +329,33 @@ BBDownT -app -token "******" "https://www.bilibili.com/video/BV1qt4y1X7TW"
 
 下载普通视频：
 ```
-BBDownT "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 使用TV接口下载(粉丝量大的UP主基本上是无水印片源)：
 ```
-BBDownT -tv "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown -tv "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 当分P过多时，默认会隐藏展示全部的分P信息，你可以使用如下命令来显示所有每一个分P。
 ```
-BBDownT --show-all "https://www.bilibili.com/video/BV1At41167aj"
+MeowDown --show-all "https://www.bilibili.com/video/BV1At41167aj"
 ```
 选择下载某些分P的三种情况：
 * 单个分P：10
 ```
-BBDownT "https://www.bilibili.com/video/BV1At41167aj?p=10"
-BBDownT -p 10 "https://www.bilibili.com/video/BV1At41167aj"
+MeowDown "https://www.bilibili.com/video/BV1At41167aj?p=10"
+MeowDown -p 10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 * 多个分P：1,2,10
 ```
-BBDownT -p 1,2,10 "https://www.bilibili.com/video/BV1At41167aj"
+MeowDown -p 1,2,10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 * 范围分P：1-10
 ```
-BBDownT -p 1-10 "https://www.bilibili.com/video/BV1At41167aj"
+MeowDown -p 1-10 "https://www.bilibili.com/video/BV1At41167aj"
 ```
 下载番剧全集：
 ```
-BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
+MeowDown -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 ```
 
 </details>
@@ -361,14 +366,14 @@ BBDownT -p ALL "https://www.bilibili.com/bangumi/play/ss33073"
 查看视频当前及可选的配音语言。配音列表位于音视频流列表之后，默认版本标记为 `[默认]` 并在终端中以绿色显示；AI 版本标记为 `[AI]`，显式选择其他版本时另标记 `[当前]`：
 
 ```bash
-BBDownT -info "BVxxxx"
+MeowDown -info "BVxxxx"
 ```
 
 如果列表中包含 `en-US`，可以选择这个版本，或仅保存它的音频：
 
 ```bash
-BBDownT --audio-language en-US "BVxxxx"
-BBDownT --audio-language en-US --audio-only "BVxxxx"
+MeowDown --audio-language en-US "BVxxxx"
+MeowDown --audio-language en-US --audio-only "BVxxxx"
 ```
 
 - 语言代码以该视频的 `-info` 列表为准，上面的 `en-US` 只是示例。一次选择一个代码，不区分大小写，但必须完整匹配；`en` 不会自动匹配 `en-US`。
@@ -391,12 +396,12 @@ BBDownT --audio-language en-US --audio-only "BVxxxx"
 
 查看可用字幕及筛选结果，不下载字幕文件：
 ```
-BBDownT -info --sub-only "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown -info --sub-only "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 
 下载中英文字幕，同语言优先选择普通(CC)字幕，没有时保留AI字幕：
 ```
-BBDownT --sub-only --subtitle-language zh,en --ai-subtitle-policy prefer-human "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown --sub-only --subtitle-language zh,en --ai-subtitle-policy prefer-human "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 
 `--subtitle-language`用逗号分隔多个语言，不区分大小写。`zh`、`en`会匹配同一语言族的字幕，例如`ai-zh`、`en-US`；`zh-Hans`、`ai-zh`等带连字符的代码只匹配对应语言。不指定时不限制字幕语言。
@@ -414,7 +419,7 @@ BBDownT --sub-only --subtitle-language zh,en --ai-subtitle-policy prefer-human "
 
 手动选择需要下载的字幕，并允许AI字幕出现在候选中：
 ```
-BBDownT --sub-only -ia --skip-ai false "https://www.bilibili.com/video/BV1qt4y1X7TW"
+MeowDown --sub-only -ia --skip-ai false "https://www.bilibili.com/video/BV1qt4y1X7TW"
 ```
 然后按照提示输入从1开始的字幕序号，支持逗号列表、范围、`ALL`或`NONE`。直接回车保留所有候选，输入错误会重新询问。使用`-info`时只显示列表，不进行交互。
 
@@ -431,25 +436,25 @@ BBDownT --sub-only -ia --skip-ai false "https://www.bilibili.com/video/BV1qt4y1X
 
 直接输入UP主的空间地址，可以导出该UP主的全部投稿视频地址：
 ```
-BBDownT "https://space.bilibili.com/123456"
+MeowDown "https://space.bilibili.com/123456"
 ```
 视频地址会保存到工作目录下的`UP主名称的投稿视频.txt`文件中。
 
 如果你需要自动下载这些视频，可以加上`--download-all`：
 ```
-BBDownT --download-all "https://space.bilibili.com/123456"
+MeowDown --download-all "https://space.bilibili.com/123456"
 ```
 程序会先保存完整的视频地址文件，保存成功后再按顺序逐个下载。
 
 默认每个视频下载完成后等待10秒再下载下一个，你可以使用如下命令调整间隔：
 ```
-BBDownT --download-all --delay-per-video 15 "https://space.bilibili.com/123456"
+MeowDown --download-all --delay-per-video 15 "https://space.bilibili.com/123456"
 ```
 将`--delay-per-video`设为`0`可以取消等待。如果一个视频有多个分P，分P之间的间隔仍然使用`--delay-per-page`设置。
 
 其他下载参数也可以一起使用，例如只下载音频，并保存到指定目录：
 ```
-BBDownT --download-all --audio-only --work-dir "./downloads" "https://space.bilibili.com/123456"
+MeowDown --download-all --audio-only --work-dir "./downloads" "https://space.bilibili.com/123456"
 ```
 
 如果某个视频下载失败，程序会等待指定间隔后继续下载下一个，最后统一提示失败数量。有失败项时，命令会返回失败状态。
@@ -464,7 +469,7 @@ BBDownT --download-all --audio-only --work-dir "./downloads" "https://space.bili
 启动服务器（自定义监听地址和端口）：
 
 ```shell
-BBDownT serve -l http://0.0.0.0:12450
+MeowDown serve -l http://0.0.0.0:12450
 ```
 
 API服务器不支持HTTPS配置，如果有需要请自行使用nginx等反向代理进行配置

@@ -1,0 +1,531 @@
+﻿using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Security.Authentication;
+using static MeowDown.Core.Logger;
+
+namespace MeowDown.Core.Util;
+
+public static class HTTPUtil
+{
+    public static readonly HttpClient AppHttpClient = CreateClient(allowRedirects: true);
+    internal static readonly HttpClient IntlApiHttpClient = CreateClient(allowRedirects: false);
+
+    private static HttpClient CreateClient(bool allowRedirects)
+        => new(CreateWebHandler(allowRedirects)) { Timeout = TimeSpan.FromMinutes(2) };
+
+    internal static HttpMessageHandler CreateWebHandler(bool allowRedirects)
+    {
+        var transport = new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            AutomaticDecompression = DecompressionMethods.All,
+            MaxConnectionsPerServer = 2048,
+            ServerCertificateCustomValidationCallback = (_, _, _, sslPolicyErrors) =>
+                Config.ALLOW_INSECURE_TLS || sslPolicyErrors == SslPolicyErrors.None
+        };
+        var handler = new DeviceCookieHandler(transport);
+        return allowRedirects ? new CookieScopedRedirectHandler(handler) : handler;
+    }
+
+    internal static HttpClient GetWebHttpClient(bool international) => international ? IntlApiHttpClient : AppHttpClient;
+
+    private static readonly object UserAgentLock = new();
+    private static readonly string[] AndroidDevices =
+        ["Pixel 4", "Pixel 5", "Pixel 6", "Pixel 7", "Pixel 8", "Pixel 9", "SM-S9080", "SM-S9180",
+         "SM-S9280", "SM-S9380", "M2012K11AC", "2210132C", "23127PN0CC", "24031PN0DC", "V2307A", "V2408A"];
+    private static readonly string[] CurlUserAgents =
+        ["curl/8.10.1", "curl/8.11.1", "curl/8.12.1", "curl/8.13.0", "curl/8.14.1", "curl/8.15.0", "curl/8.16.0"];
+    private static string userAgent = GenerateTransportUserAgent(Random.Shared);
+    private static string? customUserAgent;
+    private static BrowserRequestProfile authenticatedBrowserProfile = BrowserRequestProfile.Create(Random.Shared);
+    private static Action<BrowserRequestProfile>? persistAuthenticatedBrowserProfile;
+
+    public static string UserAgent
+    {
+        get
+        {
+            lock (UserAgentLock) return customUserAgent ?? userAgent;
+        }
+        set
+        {
+            lock (UserAgentLock) customUserAgent = string.IsNullOrEmpty(value) ? null : value;
+        }
+    }
+
+    internal static bool IsAutomaticUserAgent
+    {
+        get
+        {
+            lock (UserAgentLock) return customUserAgent is null;
+        }
+    }
+
+    internal static BrowserRequestProfile AuthenticatedBrowserProfile
+    {
+        get
+        {
+            lock (UserAgentLock) return authenticatedBrowserProfile;
+        }
+    }
+
+    internal static void ConfigureAuthenticatedBrowserProfile(
+        BrowserRequestProfile profile,
+        Action<BrowserRequestProfile>? persistProfile = null)
+    {
+        if (!profile.IsValid()) throw new ArgumentException("浏览器请求配置无效", nameof(profile));
+        lock (UserAgentLock)
+        {
+            authenticatedBrowserProfile = profile;
+            persistAuthenticatedBrowserProfile = persistProfile;
+        }
+    }
+
+    internal static string GenerateTransportUserAgent(Random random)
+    {
+        return random.Next(3) switch
+        {
+            0 => $"Dart/3.{random.Next(6, 10)} (dart:io)",
+            1 => CurlUserAgents[random.Next(CurlUserAgents.Length)],
+            _ => BuildDalvikUserAgent(random)
+        };
+    }
+
+    private static string BuildDalvikUserAgent(Random random)
+    {
+        string device = AndroidDevices[random.Next(AndroidDevices.Length)];
+        int android = random.Next(device == "SM-S9380" ? 15 : 14, 17);
+        return $"Dalvik/2.1.0 (Linux; U; Android {android}; {device})";
+    }
+
+    internal static bool PrepareRiskControlRetry()
+    {
+        lock (UserAgentLock)
+        {
+            if (customUserAgent is not null || !string.IsNullOrEmpty(Config.COOKIE)) return false;
+            userAgent = GenerateDifferentTransportUserAgent(userAgent);
+            return true;
+        }
+    }
+
+    private static string GenerateDifferentTransportUserAgent(string previous)
+    {
+        string replacement;
+        do
+        {
+            replacement = GenerateTransportUserAgent(Random.Shared);
+        } while (replacement == previous);
+        return replacement;
+    }
+
+    public static bool ShouldSendCookie(string url)
+    {
+        if (string.IsNullOrEmpty(Config.COOKIE) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttps || uri.UserInfo.Length != 0) return false;
+        var host = uri.Host;
+        if (Config.COOKIE_IS_INTL && !IsIntlCookieDestination(uri))
+            return false;
+        return Config.COOKIE_ALLOWED_DOMAINS.Any(domain => IsDomain(host, domain));
+    }
+
+    private static bool IsIntlCookieDestination(Uri uri)
+    {
+        if (IsDomain(uri.Host, "bilibili.tv") || IsDomain(uri.Host, "biliintl.com")) return true;
+        // A custom parsing host is an explicit credential-forwarding choice;
+        // an allowed media/CDN host alone is not such authorization.
+        return uri.AbsolutePath.StartsWith("/intl/gateway/", StringComparison.Ordinal)
+            && (MatchesIntlProxy(uri, Config.HOST) || MatchesIntlProxy(uri, Config.EPHOST));
+    }
+
+    private static bool IsDomain(string host, string domain)
+        => host.Equals(domain, StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+
+    private static bool MatchesIntlProxy(Uri target, string configuredHost)
+    {
+        if (!Uri.TryCreate(configuredHost.Contains("://", StringComparison.Ordinal) ? configuredHost : "https://" + configuredHost,
+            UriKind.Absolute, out var configured) || configured.Scheme != Uri.UriSchemeHttps
+            || IsDomain(configured.Host, "bilibili.com") || configured.UserInfo.Length != 0)
+            return false;
+        return target.Host.Equals(configured.Host, StringComparison.OrdinalIgnoreCase) && target.Port == configured.Port;
+    }
+
+    public static string GetCookieHeaderValue(string url)
+    {
+        var cookie = WithoutRefreshToken(Config.COOKIE);
+        return !Config.COOKIE_IS_INTL && (url.Contains("/ep") || url.Contains("/ss")) ? cookie + ";CURRENT_FNVAL=4048;" : cookie;
+    }
+
+    internal static string WithoutRefreshToken(string cookieHeader)
+    {
+        var pairs = cookieHeader.Split(';');
+        if (!pairs.Any(IsRefreshTokenPair)) return cookieHeader;
+        return string.Join("; ", pairs.Select(pair => pair.Trim())
+            .Where(pair => pair.Length > 0 && !IsRefreshTokenPair(pair)));
+    }
+
+    private static bool IsRefreshTokenPair(string pair)
+    {
+        var name = pair.Split('=', 2)[0].Trim();
+        return name.Equals("ac_time_value", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("refresh_token", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static void TryAddCookieHeader(HttpRequestMessage request, string url)
+    {
+        if (ShouldSendCookie(url))
+        {
+            request.Headers.TryAddWithoutValidation("Cookie", GetCookieHeaderValue(url));
+        }
+    }
+
+    public static async Task<string> GetWebSourceAsync(string url)
+    {
+        string htmlCode = await GetWebSourceAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url);
+        LogDebug("Response: {0}", htmlCode);
+        return htmlCode;
+    }
+
+    internal static Task<string> GetWebTextAsync(HttpClient httpClient, string url, string accept)
+        => ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, true, false,
+            (response, token) => response.Content.ReadAsStringAsync(token), default, null, null,
+            configureRequest: request => request.Headers.TryAddWithoutValidation("Accept", accept));
+
+    internal static Task<byte[]> GetWebBytesAsync(HttpClient httpClient, string url, string accept)
+        => ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, true, false,
+            (response, token) => response.Content.ReadAsByteArrayAsync(token), default, null, null,
+            configureRequest: request => request.Headers.TryAddWithoutValidation("Accept", accept));
+
+    internal static void RotateRequestIdentity(string url)
+        => RotateAutomaticIdentity(ResolveRequestIdentity(url, null, true, false));
+
+    internal static async Task<string> GetAuthenticatedWebSourceAsync(string url)
+    {
+        string htmlCode = await GetWebSourceAsync(GetWebHttpClient(Config.COOKIE_IS_INTL), url,
+            forceAuthenticatedProfile: true);
+        LogDebug("Response: {0}", htmlCode);
+        return htmlCode;
+    }
+
+    internal static async Task<string> GetIntlAppSourceAsync(
+        string url,
+        HttpClient? httpClient = null,
+        CancellationToken cancellationToken = default,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
+    {
+        // App requests never follow redirects; device cookies only go to bilibili.com hosts.
+        var json = await ExecuteWebRequestAsync(httpClient ?? IntlApiHttpClient, HttpMethod.Get, url,
+            "Bilibili Freedoooooom/MarkII", Config.COOKIE_IS_INTL, false,
+            (response, token) => response.Content.ReadAsStringAsync(token), cancellationToken, delay, null,
+            configureRequest: request =>
+            {
+                request.Headers.TryAddWithoutValidation("APP-KEY", "bstar_a");
+                request.Headers.TryAddWithoutValidation("ENV", "prod");
+            });
+        // Successful responses include signed media URLs; leave their contents out of logs.
+        LogDebug("国际站 App 响应: {0} 字符", json.Length);
+        return json;
+    }
+
+    internal static Task<string> GetWebSourceAsync(
+        HttpClient httpClient,
+        string url,
+        string? requestedUserAgent = null,
+        bool sendCookie = true,
+        bool forceAuthenticatedProfile = false,
+        CancellationToken cancellationToken = default,
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Action<string>? log = null,
+        Func<RequestIdentity, RequestIdentity?>? rotateIdentity = null)
+        => ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, requestedUserAgent, sendCookie,
+            forceAuthenticatedProfile, (response, token) => response.Content.ReadAsStringAsync(token),
+            cancellationToken, delay, log, rotateIdentity);
+
+    private static Task<T> ExecuteWebRequestAsync<T>(
+        HttpClient httpClient,
+        HttpMethod method,
+        string url,
+        string? requestedUserAgent,
+        bool sendCookie,
+        bool forceAuthenticatedProfile,
+        Func<HttpResponseMessage, CancellationToken, Task<T>> readResponse,
+        CancellationToken cancellationToken,
+        Func<TimeSpan, CancellationToken, Task>? delay,
+        Action<string>? log,
+        Func<RequestIdentity, RequestIdentity?>? rotateIdentity = null,
+        Action<HttpRequestMessage>? configureRequest = null)
+    {
+        // Capture once per logical request; ordinary network retries keep all identity headers.
+        var identity = ResolveRequestIdentity(url, requestedUserAgent, sendCookie, forceAuthenticatedProfile);
+        var riskControlRetried = false;
+        rotateIdentity ??= RotateAutomaticIdentity;
+        return NetworkRetry.ExecuteAsync(async token =>
+        {
+            // ResponseHeadersRead leaves body reads outside HttpClient.Timeout. Apply the same
+            // deadline to the entire attempt, including the body and the one permitted 412 retry.
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            if (httpClient.Timeout != Timeout.InfiniteTimeSpan) deadline.CancelAfter(httpClient.Timeout);
+            try
+            {
+                while (true)
+                {
+                    using var request = CreateWebRequest(method, url, identity, sendCookie);
+                    configureRequest?.Invoke(request);
+                    LogDebug("获取网页内容: Url: {0}, Headers: {1}", url, request.Headers);
+                    using var response = await httpClient.SendAsync(request,
+                        HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+                    if (response.StatusCode == HttpStatusCode.PreconditionFailed
+                        && requestedUserAgent is null && !riskControlRetried)
+                    {
+                        riskControlRetried = true;
+                        var replacement = rotateIdentity(identity);
+                        if (replacement is not null)
+                        {
+                            LogDebug(identity.BrowserProfile is null
+                                ? "服务端返回HTTP 412，自动更换User-Agent后重试"
+                                : "服务端返回HTTP 412，自动更换完整浏览器请求配置后重试");
+                            identity = replacement.Value;
+                            continue;
+                        }
+                    }
+                    NetworkRetry.EnsureSuccessStatusCode(response);
+                    try
+                    {
+                        return await readResponse(response, deadline.Token);
+                    }
+                    catch (HttpRequestException error) when (IsUnclassifiedResponseReadError(error))
+                    {
+                        // HttpContent wraps a plain transport IOException as Unknown. Only this
+                        // remote body-read boundary can identify it without retrying local IO.
+                        throw new DownloadInterruptedException("网页响应读取中断", error);
+                    }
+                }
+            }
+            catch (OperationCanceledException error) when (!token.IsCancellationRequested && deadline.IsCancellationRequested)
+            {
+                throw new OperationCanceledException("HTTP request timed out.",
+                    new TimeoutException("HTTP request timed out.", error), deadline.Token);
+            }
+        }, NetworkRetry.RequestDelays, "获取网页", cancellationToken, delay, log);
+    }
+
+    private static bool IsUnclassifiedResponseReadError(HttpRequestException error)
+    {
+        if (error.HttpRequestError != HttpRequestError.Unknown || error.StatusCode.HasValue
+            || error.InnerException?.GetType() != typeof(IOException)) return false;
+        for (Exception? cause = error.InnerException; cause is not null; cause = cause.InnerException)
+        {
+            // InvalidDataException includes deterministic gzip/deflate corruption. Explicit
+            // protocol errors and cancellation retain their original classification as well.
+            if (cause is InvalidDataException or HttpIOException or HttpRequestException
+                or AuthenticationException or OperationCanceledException) return false;
+        }
+        return true;
+    }
+
+    internal static void ApplyWebRequestHeaders(
+        HttpRequestMessage request,
+        string url,
+        bool sendCookie = true,
+        bool forceAuthenticatedProfile = false)
+        => ApplyStandardHeaders(request, url,
+            ResolveRequestIdentity(url, null, sendCookie, forceAuthenticatedProfile), sendCookie);
+
+    private static HttpRequestMessage CreateWebRequest(
+        HttpMethod method,
+        string url,
+        RequestIdentity identity,
+        bool sendCookie)
+    {
+        var request = new HttpRequestMessage(method, url);
+        ApplyStandardHeaders(request, url, identity, sendCookie);
+        request.Headers.CacheControl = CacheControlHeaderValue.Parse("no-cache");
+        return request;
+    }
+
+    private static void ApplyStandardHeaders(
+        HttpRequestMessage request,
+        string url,
+        RequestIdentity identity,
+        bool sendCookie)
+    {
+        ApplyRequestIdentity(request, identity, url);
+        if (sendCookie) TryAddCookieHeader(request, url);
+        if (request.Method == HttpMethod.Get && url.Contains("api.bilibili.com", StringComparison.OrdinalIgnoreCase))
+            request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.com/");
+        AddIntlReferer(request, url);
+    }
+
+    private static RequestIdentity ResolveRequestIdentity(
+        string url,
+        string? requestedUserAgent,
+        bool sendCookie,
+        bool forceAuthenticatedProfile)
+    {
+        lock (UserAgentLock)
+        {
+            if (requestedUserAgent is not null)
+                return new RequestIdentity(requestedUserAgent, null);
+
+            bool useBrowserProfile = customUserAgent is null
+                && (forceAuthenticatedProfile || (sendCookie && ShouldSendCookie(url)));
+            return useBrowserProfile
+                ? new RequestIdentity(authenticatedBrowserProfile.UserAgent, authenticatedBrowserProfile)
+                : new RequestIdentity(customUserAgent ?? userAgent, null);
+        }
+    }
+
+    private static void ApplyRequestIdentity(HttpRequestMessage request, RequestIdentity identity, string url)
+    {
+        if (identity.BrowserProfile is not null)
+        {
+            identity.BrowserProfile.Apply(request);
+            request.Headers.TryAddWithoutValidation("Sec-Fetch-Dest", "empty");
+            request.Headers.TryAddWithoutValidation("Sec-Fetch-Mode", "cors");
+            request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", IsBilibiliSameSite(url) ? "same-site" : "cross-site");
+            return;
+        }
+
+        request.Headers.TryAddWithoutValidation("User-Agent", identity.UserAgent);
+        request.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+    }
+
+    private static void AddIntlReferer(HttpRequestMessage request, string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            && (IsDomain(uri.Host, "bilibili.tv") || IsDomain(uri.Host, "biliintl.com")))
+            request.Headers.TryAddWithoutValidation("Referer", "https://www.bilibili.tv/");
+    }
+
+    private static bool IsBilibiliSameSite(string url)
+    {
+        var domain = Config.COOKIE_IS_INTL ? "bilibili.tv" : "bilibili.com";
+        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && IsDomain(uri.Host, domain);
+    }
+
+    private static RequestIdentity? RotateAutomaticIdentity(RequestIdentity failedIdentity)
+    {
+        BrowserRequestProfile? changedProfile = null;
+        Action<BrowserRequestProfile>? persistProfile = null;
+        RequestIdentity retryIdentity;
+
+        lock (UserAgentLock)
+        {
+            if (customUserAgent is not null) return null;
+            if (failedIdentity.BrowserProfile is not null)
+            {
+                if (authenticatedBrowserProfile != failedIdentity.BrowserProfile)
+                    return new RequestIdentity(authenticatedBrowserProfile.UserAgent, authenticatedBrowserProfile);
+
+                do
+                {
+                    changedProfile = BrowserRequestProfile.Create(Random.Shared);
+                } while (changedProfile == authenticatedBrowserProfile);
+                authenticatedBrowserProfile = changedProfile;
+                persistProfile = persistAuthenticatedBrowserProfile;
+                retryIdentity = new RequestIdentity(changedProfile.UserAgent, changedProfile);
+            }
+            else
+            {
+                if (userAgent != failedIdentity.UserAgent)
+                    return new RequestIdentity(userAgent, null);
+                userAgent = GenerateDifferentTransportUserAgent(userAgent);
+                retryIdentity = new RequestIdentity(userAgent, null);
+            }
+        }
+
+        if (changedProfile is not null && persistProfile is not null)
+        {
+            try
+            {
+                persistProfile(changedProfile);
+            }
+            catch (Exception ex)
+            {
+                LogWarn($"保存浏览器请求配置失败，将仅在本次运行中使用新配置。原因：{ErrorText.Describe(ex)}");
+            }
+        }
+        return retryIdentity;
+    }
+
+    internal readonly record struct RequestIdentity(
+        string UserAgent,
+        BrowserRequestProfile? BrowserProfile);
+
+    // 重写重定向处理, 自动跟随多次重定向
+    public static async Task<string> GetWebLocationAsync(string url)
+    {
+        // International redirects never carry the account Cookie header.
+        bool sendCookie = !Config.COOKIE_IS_INTL && ShouldSendCookie(url);
+        string location = await GetWebLocationAsync(AppHttpClient, url, sendCookie);
+        LogDebug("Location: {0}", location);
+        return location;
+    }
+
+    internal static async Task<string> GetWebLocationAsync(
+        HttpClient httpClient,
+        string url,
+        bool sendCookie = true,
+        CancellationToken cancellationToken = default,
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        Action<string>? log = null)
+    {
+        try
+        {
+            return await ExecuteWebRequestAsync(httpClient, HttpMethod.Head, url, null, sendCookie, false,
+                (response, _) => Task.FromResult(response.RequestMessage?.RequestUri?.AbsoluteUri ?? url),
+                cancellationToken, delay, log);
+        }
+        catch (HttpRequestException error) when (error.StatusCode is HttpStatusCode.MethodNotAllowed or HttpStatusCode.NotImplemented)
+        {
+            // Some short-link services only redirect GET; only the final URI is needed.
+            return await ExecuteWebRequestAsync(httpClient, HttpMethod.Get, url, null, sendCookie, false,
+                (response, _) => Task.FromResult(response.RequestMessage?.RequestUri?.AbsoluteUri ?? url),
+                cancellationToken, delay, log);
+        }
+    }
+
+    public static async Task<byte[]> GetPostResponseAsync(string Url, byte[] postData, Dictionary<string, string> headers)
+    {
+        LogDebug("Post to: {0}, data: {1}", Url, Convert.ToBase64String(postData));
+
+        using ByteArrayContent content = new(postData);
+        content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/grpc");
+
+        using HttpRequestMessage request = new()
+        {
+            RequestUri = new Uri(Url),
+            Method = HttpMethod.Post,
+            Content = content,
+            //Version = HttpVersion.Version20
+        };
+
+        foreach (KeyValuePair<string, string> header in headers)
+            request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+
+        using HttpResponseMessage response = await AppHttpClient.SendAsync(request);
+        NetworkRetry.EnsureSuccessStatusCode(response);
+        byte[] bytes = await response.Content.ReadAsByteArrayAsync();
+        ThrowIfGrpcError(response);
+
+        return bytes;
+    }
+
+    internal static void ThrowIfGrpcError(HttpResponseMessage response)
+    {
+        var status = GrpcHeader(response, "grpc-status");
+        if (status is null or "0") return;
+        var message = Uri.UnescapeDataString(GrpcHeader(response, "grpc-message") ?? "").Trim();
+        var code = int.TryParse(status, out var value) ? value : -1;
+        throw new BilibiliApiException($"APP接口请求失败：{(message.Length > 0 ? message : "接口拒绝了请求")}（错误码 {code}）", code);
+    }
+
+    private static string? GrpcHeader(HttpResponseMessage response, string name)
+        => response.Headers.TryGetValues(name, out var values) || response.TrailingHeaders.TryGetValues(name, out values)
+            ? values.FirstOrDefault() : null;
+}

@@ -369,19 +369,19 @@ FodyWeavers.xsd
 
 # debug log
 debug_*.json
-BBDownT.web.json
+MeowDown.web.json
 
-# dotnet run in `BBDownT/` sub folder
-/BBDownT/*.mp4
-/BBDownT/*.xml
-/BBDownT/*.ass
+# dotnet run in `MeowDown/` sub folder
+/MeowDown/*.mp4
+/MeowDown/*.xml
+/MeowDown/*.ass
 
 /devdocs/
 
 # local credentials and downloads
 *.data
-BBDownT.config
-BBDownT.archives
+MeowDown.config
+MeowDown.archives
 *.migrated-*
 /downloads/
 
