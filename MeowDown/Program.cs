@@ -67,6 +67,9 @@ partial class Program
 
     public static Task<int> Main(params string[] args)
     {
+        //中文 Windows 控制台默认 GBK，无法编码二维码块字符（▀ 等），启动即切 UTF-8；
+        //重定向输出也随之统一为 UTF-8。无控制台或设置失败时保持原样。
+        try { Console.OutputEncoding = System.Text.Encoding.UTF8; } catch { }
         if (args is not ["--update"])
         {
             Console.CancelKeyPress += Console_CancelKeyPress;
