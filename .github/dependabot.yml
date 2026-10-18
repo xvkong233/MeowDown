@@ -6,6 +6,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # System.CommandLine 2.0.0 GA 重写了全部 API（CliOption/CliRootCommand 等），
+      # 与代码使用的 beta4 API 不兼容；CLI 层迁移是独立任务，完成前钉死该包。
+      - dependency-name: "System.CommandLine"
     groups:
       nuget-minor-patch:
         applies-to: version-updates
