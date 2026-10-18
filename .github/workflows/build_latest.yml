@@ -4,6 +4,7 @@ on:
   workflow_call:
   push:
     branches:
+      - "main"
       - "v2"
     paths-ignore:
       - "**/*.md"

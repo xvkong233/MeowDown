@@ -43,7 +43,16 @@ BBDownT v2 还额外修复了上游审计中确认的多处问题（混流退出
 
 ## 更名记录（2026-10-17）
 
-产品名由 BBDownT 更名为 **MeowDown**：目录（`MeowDown`/`MeowDown.Core`/`MeowDown.Tests`）、命名空间、类名前缀、程序集与 NuGet 包名（`PackageId=MeowDown`）、命令名（`ToolCommandName=MeowDown`）、磁盘文件名（`MeowDown.data`/`MeowDown.config`/`MeowDown.archives`/`MeowDownIntl.data` 等）全部更替。保留两类不改：上游 LOVAHE/BBDownT 仓库 URL（含自更新 feed）；旧版 BBDown 的 `BBDownTV.data` 等遗留文件名。`--migrate` 的迁移表新增 BBDownT 时代文件名 → MeowDown 文件名的映射，BBDownT 老用户凭据可无缝迁移；`SelfUpdater` 的资产名模式随更名变为 `MeowDown_*`，在上游 feed 中将匹配不到资产，表现为"已是最新版本"，属预期降级。CI 的 `publish-nuget.yml` 会以 `MeowDown` 包名推送，在 NuGet 上取得该 id 所有权之前发布会失败。
+产品名由 BBDownT 更名为 **MeowDown**：目录（`MeowDown`/`MeowDown.Core`/`MeowDown.Tests`）、命名空间、类名前缀、程序集与 NuGet 包名（`PackageId=MeowDown`）、命令名（`ToolCommandName=MeowDown`）、磁盘文件名（`MeowDown.data`/`MeowDown.config`/`MeowDown.archives`/`MeowDownIntl.data` 等）全部更替。保留两类不改：上游 LOVAHE/BBDownT 仓库 URL（含自更新 feed）；旧版 BBDown 的 `BBDownTV.data` 等遗留文件名。`--migrate` 的迁移表新增 BBDownT 时代文件名 → MeowDown 文件名的映射，BBDownT 老用户凭据可无缝迁移。
+
+## CI 与发布（2026-10-18）
+
+仓库：`github.com/xvkong233/MeowDown`（public），默认分支 `main`（本地分支 `own/v2` 推送过去）。
+
+- **Release 工作流**（`release.yml`）：仅 `v*` 标签推送触发；先校验标签与 `MeowDown/MeowDown.csproj` 的 `Version` 严格一致（`v` + 版本号），再复用 `build_latest.yml` 出六平台 AOT 单文件产物（`MeowDown_{win,linux,osx}-{x64,arm64}[.exe]`，linux 在 18.04 容器中构建保 glibc 兼容），最后直接创建**正式发布**（不再停留草稿；标签含 beta/rc 后缀自动标记 prerelease；已发布的 release 拒绝覆盖；遗留草稿自动补资产转正）。发版即改版本号：先改 csproj `Version`，再打同名标签。
+- **自更新**：`MeowDownSelfUpdater` 的 feed 与下载 URL 已指向本仓库，`MeowDown --update` 走本仓库 Release 资产。
+- **publish-nuget.yml**：原在 release 发布时自动推送 NuGet，因仓库尚无 `nuget` 环境与包所有权已禁用该触发，保留 `workflow_dispatch` 手动入口；取得 `MeowDown` 包所有权并配置环境后再恢复。
+- **CI/CodeQL**：`ci.yml` 全分支跑测试；`build_latest.yml` 与 `codeql.yml` 触发分支已从上游的 `v2` 扩展为 `main`+`v2`。
 
 ## 构建注意（Windows，仅装了 .NET 10 运行时时）
 

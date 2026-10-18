@@ -234,7 +234,7 @@ partial class Program
         var version = MeowDownSelfUpdater.CurrentVersion()?.ToString() ?? $"{ver.Major}.{ver.Minor}.{ver.Build}";
         Console.Write($"MeowDown version {version}, Bilibili Downloader.\r\n");
         Console.ResetColor();
-        Console.Write("遇到问题请首先到以下地址查阅有无相关信息：\r\nhttps://github.com/LOVAHE/BBDownT/issues\r\n");
+        Console.Write("遇到问题请首先到以下地址查阅有无相关信息：\r\nhttps://github.com/xvkong233/MeowDown/issues\r\n");
         Console.WriteLine();
 
         //处理配置文件

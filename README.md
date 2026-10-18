@@ -40,9 +40,9 @@ MeowDown --migrate
 （迁移时会跳过已存在的目标文件）迁移成功后，旧文件会改名为带 `.migrated-时间戳` 后缀的备份。
 
 # 下载
-上游 Release 版本：https://github.com/LOVAHE/BBDownT/releases（MeowDown 尚未单独发布，可自行构建）
+Release 版本：https://github.com/xvkong233/MeowDown/releases —— 推送 v 前缀版本号标签（如 v2.2.0-beta4）自动构建并发布，带 beta/rc 后缀自动标记为预发布；标签必须与 csproj 的 Version 一致
 
-上游自动构建产物：https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml
+上游 Release：https://github.com/LOVAHE/BBDownT/releases ｜ 上游构建产物：https://github.com/LOVAHE/BBDownT/actions/workflows/build_latest.yml
 
 # 开始使用
 目前命令行参数支持情况

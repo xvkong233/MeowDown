@@ -25,9 +25,9 @@ static partial class MeowDownUtil
             var current = MeowDownSelfUpdater.CurrentVersion();
             if (current is null) return;
             string redirectUrl = await GetWebLocationAsync(AppHttpClient,
-                "https://github.com/LOVAHE/BBDownT/releases/latest",
+                "https://github.com/xvkong233/MeowDown/releases/latest",
                 sendCookie: false, log: message => LogDebug("{0}", message));
-            string latestVer = redirectUrl.Replace("https://github.com/LOVAHE/BBDownT/releases/tag/", "");
+            string latestVer = redirectUrl.Replace("https://github.com/xvkong233/MeowDown/releases/tag/", "");
             latestVer = latestVer.TrimStart('v', 'V');
             if (IsNewerVersion(current, latestVer))
             {

@@ -368,7 +368,7 @@ public class SelfUpdaterTests
     }
 
     private static string ExpectedAssetUrl =>
-        $"https://github.com/LOVAHE/BBDownT/releases/download/v2.0.0/{AssetName}";
+        $"https://github.com/xvkong233/MeowDown/releases/download/v2.0.0/{AssetName}";
 
     private static MeowDownSelfUpdater.ReleaseVersion Parse(string text)
         => MeowDownSelfUpdater.ReleaseVersion.TryParse(text, out var version) ? version : throw new FormatException(text);
@@ -398,7 +398,7 @@ public class SelfUpdaterTests
             state = "uploaded",
             size = size ?? UpdatedBytes.Length,
             digest = digest ?? "sha256:" + Sha256(UpdatedBytes),
-            browser_download_url = downloadUrl ?? $"https://github.com/LOVAHE/BBDownT/releases/download/{tag}/{AssetName}"
+            browser_download_url = downloadUrl ?? $"https://github.com/xvkong233/MeowDown/releases/download/{tag}/{AssetName}"
         });
         return JsonSerializer.Serialize(new
         {
