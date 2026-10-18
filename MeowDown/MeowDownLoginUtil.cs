@@ -49,18 +49,77 @@ internal static class MeowDownLoginUtil
 
     private static void PrintQrCode(QRCodeData data)
     {
+        var glyphs = ResolveQrGlyphs();
         try
         {
             Console.ForegroundColor = ConsoleColor.Black;
             Console.BackgroundColor = ConsoleColor.White;
-            foreach (var row in CreateQrRows(data)) Console.WriteLine(row);
+            foreach (var row in CreateQrRows(data, glyphs)) Console.WriteLine(row);
         }
         finally { Console.ResetColor(); }
     }
 
-    internal static string[] CreateQrRows(QRCodeData data)
+    internal readonly record struct QrGlyphs(char Full, char Top, char Bottom, char Empty, bool DoubleRows);
+
+    private static readonly QrGlyphs HalfBlockGlyphs = new('█', '▀', '▄', ' ', DoubleRows: false);
+
+    //二维码由半块字符（█▀▄）绘制，部分代码页（如中文 Windows 的 GBK）没有 ▀，
+    //控制台会把无法编码的字符替换成 ?，二维码随之不可用。按序自适应：
+    //1) 当前编码可直接表示 → 不动控制台；2) 切 UTF-8 后可表示 → 切换；
+    //3) 仍不行 → 退化为整块渲染（高度翻倍），字符同样取当前编码可表示者。
+    //启动期调用：当前控制台表示不了二维码块字符时尽早切换，
+    //保证整个会话输出编码一致（否则切换前后的日志会是两种编码）。
+    internal static void AdaptConsoleEncoding() => ResolveQrGlyphs();
+
+    internal static QrGlyphs ResolveQrGlyphs()
+    {
+        if (EncodingSupports(Console.Out.Encoding, HalfBlockGlyphs)) return HalfBlockGlyphs;
+        try { Console.OutputEncoding = Encoding.UTF8; } catch { }
+        if (EncodingSupports(Console.Out.Encoding, HalfBlockGlyphs)) return HalfBlockGlyphs;
+        foreach (var glyphs in new[]
+                 {
+                     new QrGlyphs('█', '█', '█', ' ', DoubleRows: true),
+                     new QrGlyphs('#', '#', '#', ' ', DoubleRows: true),
+                 })
+        {
+            if (EncodingSupports(Console.Out.Encoding, glyphs)) return glyphs;
+        }
+        return new QrGlyphs('#', '#', '#', ' ', DoubleRows: true); //ASCII 恒可表示
+    }
+
+    internal static bool EncodingSupports(Encoding encoding, QrGlyphs glyphs)
+    {
+        try
+        {
+            //Console 返回的编码实例（WebName 形如 "Codepage - 936" 的包装类）会忽略
+            //Clone 后设置的 EncoderFallback，GetBytes 静默产出 '?'；按 CodePage 重新
+            //解析底层编码再探测，才能得到真实可编码性。解析失败视作不支持。
+            var underlying = Encoding.GetEncoding(encoding.CodePage);
+            var probe = (Encoding)underlying.Clone();
+            probe.EncoderFallback = new EncoderExceptionFallback();
+            probe.GetBytes(new[] { glyphs.Full, glyphs.Top, glyphs.Bottom, glyphs.Empty });
+            return true;
+        }
+        catch { return false; } //EncoderFallbackException 等异常一律视为不支持
+    }
+
+    internal static string[] CreateQrRows(QRCodeData data) => CreateQrRows(data, HalfBlockGlyphs);
+
+    internal static string[] CreateQrRows(QRCodeData data, QrGlyphs glyphs)
     {
         var matrix = data.ModuleMatrix;
+        if (glyphs.DoubleRows)
+        {
+            var doubled = new string[matrix.Count * 2];
+            for (var y = 0; y < matrix.Count; y++)
+            {
+                var row = new char[matrix.Count];
+                for (var x = 0; x < matrix.Count; x++) row[x] = matrix[y][x] ? glyphs.Full : glyphs.Empty;
+                doubled[y * 2] = new string(row);
+                doubled[y * 2 + 1] = doubled[y * 2];
+            }
+            return doubled;
+        }
         var rows = new string[(matrix.Count + 1) / 2];
         for (var y = 0; y < matrix.Count; y += 2)
         {
@@ -69,7 +128,7 @@ internal static class MeowDownLoginUtil
             {
                 var top = matrix[y][x];
                 var bottom = y + 1 < matrix.Count && matrix[y + 1][x];
-                row[x] = top ? bottom ? '█' : '▀' : bottom ? '▄' : ' ';
+                row[x] = top ? bottom ? glyphs.Full : glyphs.Top : bottom ? glyphs.Bottom : glyphs.Empty;
             }
             rows[y / 2] = new string(row);
         }

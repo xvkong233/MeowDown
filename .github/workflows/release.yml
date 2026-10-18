@@ -83,12 +83,12 @@ jobs:
 
           if [[ "$state" == draft ]]; then
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$repo"
-            gh release edit "$tag" --draft=false --repo "$repo"
+            gh release edit "$tag" --draft=false
           else
             release_flags=(--verify-tag)
             if [[ "$tag" == *-* ]]; then
               release_flags+=(--prerelease)
             fi
             gh release create "$tag" "${assets[@]}" "${release_flags[@]}" \
-              --title "MeowDown ${tag#v}" --notes-from-tag --repo "$repo"
+              --title "MeowDown ${tag#v}" --notes-from-tag
           fi
