@@ -39,11 +39,11 @@ BBDownT v2 还额外修复了上游审计中确认的多处问题（混流退出
 - `MeowDown/MeowDownApiServer.cs`：服务器任务 WorkDir 校验在环境变量展开**之前**拒绝内嵌 NUL 的路径。Windows 的 `ExpandEnvironmentVariables` 经 Win32 会在 NUL 处截断字符串，导致 `Path.GetFullPath` 收到截断后的合法路径，带 NUL 的目录名绕过校验被静默替换为截断名（Linux 上为托管实现、`GetFullPath` 抛异常，故上游测试未暴露此平台差异）。
 - `MeowDown.Tests/IntlMediaRequestTests.cs`：aria2c 参数断言改为用 `Path.GetDirectoryName` 生成期望目录，不再硬编码 POSIX 分隔符，Windows 上可正确运行。
 
-本机验证：`dotnet build` 0 警告 0 错误；`dotnet test` 1611 通过 / 0 失败 / 9 跳过（跳过项为需要真实网络的协议联调测试）。
+本机验证（2026-10-23，Windows 实测）：`dotnet build` 0 警告 0 错误；`dotnet test` 1624 通过 / 0 失败 / 9 跳过（3 项文件权限测试需 Unix 非 root、5 项国际站协议联调需真实网络、1 项 FFmpeg 混流回归需 `BBDOWN_CHAPTER_TEST_DIR` 与 ffmpeg——后者已由 ci.yml 的 Ubuntu 腿在 CI 执行）。此为时点快照，以最新 CI 为准。
 
 ## 更名记录（2026-10-17）
 
-产品名由 BBDownT 更名为 **MeowDown**：目录（`MeowDown`/`MeowDown.Core`/`MeowDown.Tests`）、命名空间、类名前缀、程序集与 NuGet 包名（`PackageId=MeowDown`）、命令名（`ToolCommandName=MeowDown`）、磁盘文件名（`MeowDown.data`/`MeowDown.config`/`MeowDown.archives`/`MeowDownIntl.data` 等）全部更替。保留两类不改：上游 LOVAHE/BBDownT 仓库 URL（含自更新 feed）；旧版 BBDown 的 `BBDownTV.data` 等遗留文件名。`--migrate` 的迁移表新增 BBDownT 时代文件名 → MeowDown 文件名的映射，BBDownT 老用户凭据可无缝迁移。
+产品名由 BBDownT 更名为 **MeowDown**：目录（`MeowDown`/`MeowDown.Core`/`MeowDown.Tests`）、命名空间、类名前缀、程序集与 NuGet 包名（`PackageId=MeowDown`）、命令名（`ToolCommandName=MeowDown`）、磁盘文件名（`MeowDown.data`/`MeowDown.config`/`MeowDown.archives`/`MeowDownIntl.data` 等）全部更替。保留两类不改：上游 LOVAHE 的署名（csproj 的 `Authors=LOVAHE`）与弹幕脚本头的上游仓库链接（`MeowDown.Core/DanmakuUtil.cs` 中 "Script Updated By" 一行）；旧版 BBDown 的 `BBDownTV.data` 等遗留文件名。更正：早期版本此处写"保留上游仓库 URL（含自更新 feed）"已不符合现行事实——自更新 feed 与下载 URL 均已改指本仓库 xvkong233/MeowDown（`MeowDownSelfUpdater.cs` 的 `ReleasesUrl` 与下载地址校验，见下文"CI 与发布"）。`--migrate` 的迁移表新增 BBDownT 时代文件名 → MeowDown 文件名的映射，BBDownT 老用户凭据可无缝迁移。
 
 ## CI 与发布（2026-10-18）
 

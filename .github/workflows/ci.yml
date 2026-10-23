@@ -16,7 +16,11 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -27,8 +31,22 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
+      # 仅 Ubuntu 腿安装 ffmpeg/ffprobe 并提供 BBDOWN_CHAPTER_TEST_DIR，
+      # 使 ChapterMetadataTests 的 [ChapterMuxFact] FFmpeg 混流回归随 CI 执行；
+      # windows/macos 腿不设该变量，对应用例保持跳过（ChapterMuxFactAttribute 门控）。
+      - name: Install FFmpeg (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          chapter_dir="$RUNNER_TEMP/chapter-mux"
+          mkdir -p "$chapter_dir"
+          echo "BBDOWN_CHAPTER_TEST_DIR=$chapter_dir" >> "$GITHUB_ENV"
+
       - name: Restore
         run: dotnet restore MeowDown.sln
 
       - name: Test
         run: dotnet test MeowDown.sln -c Release --no-restore --nologo
+        env:
+          DOTNET_ROLL_FORWARD: LatestMajor

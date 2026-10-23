@@ -2,7 +2,7 @@
 
 ## 报告安全漏洞
 
-如发现可能导致账号凭据泄露、未授权访问、任意文件写入或其他安全影响的问题，请通过 [私密漏洞报告](https://github.com/LOVAHE/BBDownT/security/advisories/new) 联系维护者。
+如发现可能导致账号凭据泄露、未授权访问、任意文件写入或其他安全影响的问题，请通过 [私密漏洞报告](https://github.com/xvkong233/MeowDown/security/advisories/new) 联系维护者。
 
 请勿在公开 Issue 中提交尚未修复的漏洞利用细节或真实 Cookie、Token、登录凭据文件。普通运行异常和功能建议请使用对应的 Issue 表单。
 
