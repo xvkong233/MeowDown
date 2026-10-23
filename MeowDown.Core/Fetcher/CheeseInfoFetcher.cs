@@ -49,7 +49,6 @@ public class CheeseInfoFetcher : IFetcher
             PubTime = pubTime,
             PagesInfo = pagesInfo,
             IsBangumi = true,
-            IsCheese = true,
             Index = index
         };
 

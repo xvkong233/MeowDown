@@ -26,7 +26,6 @@ public class VInfo
     /// </summary>
     public required long PubTime { get; set; }
     public bool IsBangumi { get; set; }
-    public bool IsCheese { get; set; }
 
     /// <summary>
     /// 番剧是否完结

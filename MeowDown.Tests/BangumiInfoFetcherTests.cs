@@ -26,8 +26,6 @@ public class BangumiInfoFetcherTests
         Assert.Equal("https://example.test/cover.jpg", result.Pic);
         Assert.Equal(0, result.PubTime);
         Assert.True(result.IsBangumi);
-        // Preserve this existing flag until its download semantics are decided separately.
-        Assert.True(result.IsCheese);
         Assert.Equal("2", result.Index);
         Assert.Equal(international ? "7" : null, result.IntlSeasonId);
         Assert.Collection(result.PagesInfo,

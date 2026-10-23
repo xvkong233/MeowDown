@@ -52,7 +52,12 @@ public static class DanmakuUtil
                     string[] vs = dElement.GetAttribute("p").Split(',');
                     if (vs.Length >= 8)
                     {
-                        DanmakuItem danmaku = new(vs, dElement.InnerText);
+                        DanmakuItem? danmaku = DanmakuItem.TryParse(vs, dElement.InnerText);
+                        if (danmaku == null)
+                        {
+                            LogWarn($"弹幕文件 {xmlPath} 中存在时间非法的弹幕, 已跳过: p=\"{dElement.GetAttribute("p")}\", 内容=\"{dElement.InnerText}\"");
+                            continue;
+                        }
                         danmakus.Add(danmaku);
                     }
                 }
@@ -250,6 +255,14 @@ public static class DanmakuUtil
                 Log(e.Message);
             }
             Content = content;
+        }
+        /// <summary>
+        /// 解析弹幕属性，时间非法时返回 null，避免产出损坏的 Ass 行
+        /// </summary>
+        public static DanmakuItem? TryParse(string[] attrs, string content)
+        {
+            if (attrs.Length < 4 || !double.TryParse(attrs[0], out _)) return null;
+            return new DanmakuItem(attrs, content);
         }
         private static string ComputeTime(double second)
         {

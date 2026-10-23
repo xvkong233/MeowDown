@@ -328,7 +328,8 @@ public static partial class SubUtil
                 var refusal = BilibiliApi.GetError(Encoding.UTF8.GetString(payload), "获取字幕列表")
                     ?? throw new InvalidDataException("字幕接口返回了无法识别的数据");
                 if (BilibiliApi.IsRateLimited(refusal.Code)) throw refusal;
-                LogDebug("{0}", refusal.Message);
+                // refusal.Message 由 BilibiliApi.GetError 拼装，已包含服务端原始 reason 与错误码（错误码 {code}）。
+                LogWarn(refusal.Message);
                 return [];
             }
             return ParseSubtitleWebResponse(payload);

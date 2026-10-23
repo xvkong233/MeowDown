@@ -50,7 +50,6 @@ public class BangumiInfoFetcher : IFetcher
             PubTime = pubTime,
             PagesInfo = pagesInfo,
             IsBangumi = true,
-            IsCheese = true,
             Index = index
         };
 

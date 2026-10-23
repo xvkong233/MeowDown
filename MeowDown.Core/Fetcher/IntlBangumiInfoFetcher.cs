@@ -62,7 +62,6 @@ public class IntlBangumiInfoFetcher : IFetcher
             PubTime = pubTime,
             PagesInfo = pagesInfo,
             IsBangumi = true,
-            IsCheese = true,
             Index = index
         };
 

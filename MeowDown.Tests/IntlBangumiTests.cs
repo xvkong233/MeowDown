@@ -209,7 +209,6 @@ public class IntlBangumiTests
         Assert.Equal("https://example.test/horizontal.jpg", result.Pic);
         Assert.True(result.IsBangumi);
         Assert.True(result.IsBangumiEnd);
-        Assert.False(result.IsCheese);
         Assert.Equal("2", result.Index);
         Assert.Equal(new[] { "13287667", "13287745", "13287800" }, result.PagesInfo.Select(page => page.epid));
         Assert.Equal(new[] { 1, 2, 3 }, result.PagesInfo.Select(page => page.index));
