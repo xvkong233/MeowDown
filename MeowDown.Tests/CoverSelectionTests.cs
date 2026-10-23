@@ -124,7 +124,7 @@ public class CoverSelectionTests
             ? new[] { "-intl", "--skip-cover", "https://www.bilibili.tv/play/2110869" }
             : new[] { "--skip-cover", "BV1xx411c7mD" };
 
-        Assert.Equal(0, await command.InvokeAsync(args));
+        Assert.Equal(0, await command.Parse(args).InvokeAsync());
         Assert.NotNull(bound);
         Assert.True(bound.SkipCover);
         var batch = bound.ForBatchVideo(bound.Url, "/in-memory");

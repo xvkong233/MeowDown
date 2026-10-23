@@ -17,14 +17,17 @@ internal static class MeowDownConfigParser
         string? configPath = null;
         try
         {
-            var inlineConfigPath = newArgsList
-                .FirstOrDefault(argument => argument.StartsWith("--config-file=", StringComparison.Ordinal));
-            var explicitPath = inlineConfigPath is not null || newArgsList.Contains("--config-file");
-            configPath = inlineConfigPath is not null
-                ? inlineConfigPath[(inlineConfigPath.IndexOf('=') + 1)..]
-                : explicitPath
-                    ? newArgsList.ElementAt(newArgsList.IndexOf("--config-file") + 1)
-                    : Path.Combine(Program.APP_DIR, "MeowDown.config");
+            var commandLine = rootCommand.Parse(newArgsList.ToArray(), CommandLineInvoker.ParsingConfiguration);
+            var configResult = commandLine.GetResult(CommandLineInvoker.ConfigFile);
+            if (configResult is { Implicit: false, Tokens.Count: 0 })
+            {
+                LogError("配置文件错误: --config-file 缺少文件路径");
+                return false;
+            }
+            configPath = configResult is { Implicit: false }
+                ? configResult.Tokens[^1].Value
+                : Path.Combine(Program.APP_DIR, "MeowDown.config");
+            var explicitPath = configResult is { Implicit: false };
             if (explicitPath && !File.Exists(configPath))
             {
                 LogError($"配置文件不存在: {configPath}");
@@ -54,9 +57,9 @@ internal static class MeowDownConfigParser
                 }
                 var validationCommand = string.IsNullOrEmpty(commandName) ? "config-validation-placeholder" : commandName;
                 var configArgsArray = ArgumentsForCommand(entries,
-                        alias => !rootCommand.Parse([validationCommand, alias]).UnmatchedTokens.Contains(alias))
+                        alias => !rootCommand.Parse([validationCommand, alias], CommandLineInvoker.ParsingConfiguration).UnmatchedTokens.Contains(alias))
                     .ToArray();
-                var configArgsResult = rootCommand.Parse([validationCommand, .. configArgsArray]);
+                var configArgsResult = rootCommand.Parse([validationCommand, .. configArgsArray], CommandLineInvoker.ParsingConfiguration);
                 if (configArgsResult.Errors.Any())
                 {
                     foreach (var error in configArgsResult.Errors)
@@ -74,13 +77,13 @@ internal static class MeowDownConfigParser
                     return false;
                 }
 
-                var commandLine = rootCommand.Parse(newArgsList.ToArray());
                 var orderedOptionResults = CommandLineOptionOrder.ByAppearance(
-                    configArgsResult.CommandResult.Children.OfType<OptionResult>(),
+                    //GA 会把未指定 bool 选项的隐式结果也放进 Children，只合并配置文件显式声明的选项
+                    configArgsResult.CommandResult.Children.OfType<OptionResult>().Where(result => !result.Implicit),
                     configArgsArray);
                 foreach (var o in orderedOptionResults)
                 {
-                    if (commandLine.FindResultFor(o.Option) is not { IsImplicit: false })
+                    if (commandLine.GetResult(o.Option) is not { Implicit: false })
                     {
                         newArgsList.AddRange(CommandLineOptionOrder.Arguments(o));
                     }
@@ -108,6 +111,8 @@ internal static class MeowDownConfigParser
             .Concat(rootCommand.Options)
             .Concat(commands.SelectMany(command => command.Options)))
         {
+            //GA 的 Aliases 不含主名，必须把 option.Name 一并并入别名表
+            optionsByAlias.TryAdd(option.Name, option);
             foreach (var alias in option.Aliases) optionsByAlias.TryAdd(alias, option);
         }
         return optionsByAlias;

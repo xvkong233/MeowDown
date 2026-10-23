@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Linq;
 
@@ -14,12 +15,13 @@ internal static class CommandLineOptionOrder
         IEnumerable<OptionResult> optionResults,
         IReadOnlyList<string> arguments)
     {
-        return optionResults.OrderBy(result => FindFirst(arguments, result.Option.Aliases));
+        //GA 下 Option.Name 含前导"--"且 Aliases 不含主名，合并后保证仅长名选项的顺序判定不退化
+        return optionResults.OrderBy(result => FindFirst(arguments, OptionNames(result.Option)));
     }
 
     internal static string[] Arguments(OptionResult result)
     {
-        var name = "--" + result.Option.Name;
+        var name = OptionName(result.Option);
         return result.Tokens is [{ Value.Length: > 0 } single]
             ? [$"{name}={single.Value}"]
             : [name, .. result.Tokens.Select(token => token.Value)];
@@ -31,6 +33,15 @@ internal static class CommandLineOptionOrder
         var encodingIndex = FindFirst(argumentArray, EncodingPriorityAliases);
         var qualityIndex = FindFirst(argumentArray, DfnPriorityAliases);
         return encodingIndex < qualityIndex;
+    }
+
+    private static string OptionName(Option option)
+        => option.Name.StartsWith('-') ? option.Name : "--" + option.Name;
+
+    private static IEnumerable<string> OptionNames(Option option)
+    {
+        yield return OptionName(option);
+        foreach (var alias in option.Aliases) yield return alias;
     }
 
     private static int FindFirst(IReadOnlyList<string> arguments, IEnumerable<string> aliases)

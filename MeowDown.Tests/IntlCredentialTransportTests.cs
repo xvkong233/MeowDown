@@ -220,7 +220,7 @@ public class IntlCredentialTransportTests
         var args = new List<string> { "https://www.bilibili.tv/play/2110869" };
         args.AddRange(options.Split(' ', StringSplitOptions.RemoveEmptyEntries));
 
-        Assert.Equal(0, await command.InvokeAsync(args.ToArray()));
+        Assert.Equal(0, await command.Parse(args.ToArray()).InvokeAsync());
 
         Assert.NotNull(bound);
         Assert.Equal(expected, bound.ForceHttp);

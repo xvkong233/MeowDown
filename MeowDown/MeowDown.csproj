@@ -8,8 +8,8 @@
     <Version>2.2.0-beta5</Version>
     <Authors>LOVAHE</Authors>
     <Description>MeowDown是一个免费且便捷高效的哔哩哔哩下载/解析软件.</Description>
-    <PackageProjectUrl>https://github.com/LOVAHE/BBDownT</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/LOVAHE/BBDownT</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/xvkong233/MeowDown</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/xvkong233/MeowDown</RepositoryUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <IsPackable>true</IsPackable>
     <StartupObject></StartupObject>
@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="QRCoder" Version="1.8.1" />
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
   </ItemGroup>
 
   <ItemGroup>

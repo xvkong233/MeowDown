@@ -81,7 +81,7 @@ public class CommandLineInvokerTests
         });
         string[] args = value is null ? ["BV1xx411c7mD", alias] : ["BV1xx411c7mD", alias, value];
 
-        Assert.Equal(0, await rootCommand.InvokeAsync(args));
+        Assert.Equal(0, await rootCommand.Parse(args).InvokeAsync());
         Assert.NotNull(bound);
         var info = typeof(MyOption).GetProperty(property)!;
         Assert.NotEqual(expected, info.GetValue(new MyOption()));
@@ -92,8 +92,8 @@ public class CommandLineInvokerTests
     public void EveryRegisteredOption_HasABindingCase()
     {
         var registered = CommandLineInvoker.GetRootCommand(_ => Task.CompletedTask).Options
-            .Select(option => "--" + option.Name)
-            .Where(alias => alias != "--config-file")
+            .Select(option => option.Name.StartsWith('-') ? option.Name : "--" + option.Name)
+            .Where(alias => alias is not "--config-file" and not "--help" and not "--version")
             .Order();
         var covered = BoundOptions.Select(row => (string)row[0]).Order();
 

@@ -13,17 +13,7 @@
 * 杜比视界：ffmpeg5.0以上或新版mp4box.
 
 # 快速开始
-本软件已经以 [Dotnet Tool](https://www.nuget.org/packages/MeowDown/) 形式发布。
-
-如果你本地有dotnet环境，使用如下命令即可安装使用
-```
-dotnet tool install --global MeowDown
-```
-
-如果需要更新MeowDown，使用如下命令
-```
-dotnet tool update --global MeowDown
-```
+从 [GitHub Releases](https://github.com/xvkong233/MeowDown/releases) 下载对应平台的压缩包，解压后即可直接运行。
 
 独立二进制可运行 `MeowDown --update`（改名后如 `bbd --update`）更新到最新正式版。
 
@@ -57,96 +47,97 @@ Arguments:
   <url>  视频地址 或 av|bv|BV|ep|ss
 
 Options:
-  -tv, --use-tv-api                              使用TV端解析模式
-  -app, --use-app-api                            使用APP端解析模式
-  -intl, --use-intl-api                          使用国际版(东南亚视频)解析模式
-  --use-mp4box                                   使用MP4Box来混流
-  -e, --encoding-priority <encoding-priority>    视频及音频编码的选择优先级, 用逗号分割 例: "hevc,av1,avc,flac,eac3,m4a"；与 -q 同时使用时越靠前越优先
-  -q, --dfn-priority <dfn-priority>              画质优先级,用逗号分隔 例: "8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界"；与 -e 同时使用时越靠前越优先
-  -info, --only-show-info                        仅解析音视频和字幕信息，不下载；配合 --sub-only 仅列出字幕
-  --show-all                                     展示所有分P标题
-  -aria2, --use-aria2c                           调用aria2c进行下载(你需要自行准备好二进制可执行文件)
-  -ia, --interactive                             交互式选择音视频和字幕；字幕支持多选
-  -hs, --hide-streams                            不要显示所有可用音视频流
-  -mt, --multi-thread                            使用多线程下载(默认开启)
-  --video-only                                   仅下载视频；与 --audio-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败
-  --audio-only                                   仅下载音频；与 --video-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败
-  --danmaku-only                                 仅下载弹幕
-  --sub-only                                     仅下载字幕
-  --cover-only                                   仅下载封面
-  --debug                                        输出调试日志
-  --skip-mux                                     跳过混流步骤
-  --skip-subtitle                                跳过字幕下载
-  --skip-cover                                   跳过封面下载
-  --force-http                                   下载音视频时强制使用HTTP协议替换HTTPS(默认开启)
-  -dd, --download-danmaku                        下载弹幕
-  -ddf, --download-danmaku-formats <formats>     指定需下载的弹幕格式, 用逗号分隔, 可选 xml/ass, 默认: "xml,ass"
-  --skip-ai                                      跳过AI字幕下载(默认开启)
-  --subtitle-language <codes>                    筛选字幕语言，逗号分隔；zh/en 匹配语言族，zh-Hans/ai-zh 精确匹配
-  --ai-subtitle-policy <policy>                  exclude/include/prefer-human/only；显式指定时优先于 --skip-ai
-  --video-ascending                              视频升序(最小体积优先)
-  --audio-ascending                              音频升序(最小体积优先)
-  --allow-pcdn                                   不替换PCDN域名, 仅在正常情况与--upos-host均无法下载时使用
-  -F, --file-pattern <file-pattern>              使用内置变量自定义单P存储文件名:
+  -tv, --use-tv-api                                            使用TV端解析模式
+  -app, --use-app-api                                          使用APP端解析模式
+  -intl, --use-intl-api                                        使用国际版(东南亚视频)解析模式
+  --use-mp4box                                                 使用MP4Box来混流
+  -e, --encoding-priority <encoding-priority>                  视频及音频编码的选择优先级, 用逗号分割 例: "hevc,av1,avc,flac,eac3,m4a"；与 -q 同时使用时越靠前越优先
+  -q, --dfn-priority <dfn-priority>                            画质优先级,用逗号分隔 例: "8K 超高清, 1080P 高码率, HDR 真彩, 杜比视界"；与 -e 同时使用时越靠前越优先
+  -info, --only-show-info                                      仅解析音视频和字幕信息，不下载；配合 --sub-only 仅列出字幕
+  --show-all                                                   展示所有分P标题
+  -aria2, --use-aria2c                                         调用aria2c进行下载(你需要自行准备好二进制可执行文件)
+  -ia, --interactive                                           交互式选择音视频和字幕；字幕支持多选
+  -hs, --hide-streams                                          不要显示所有可用音视频流
+  -mt, --multi-thread                                          使用多线程下载(默认开启)
+  --simply-mux                                                 精简混流，不增加描述、作者等信息
+  --video-only                                                 仅下载视频；与 --audio-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败
+  --audio-only                                                 仅下载音频；与 --video-only 同时使用时下载两条独立主流并跳过混流，源不支持时失败
+  --danmaku-only                                               仅下载弹幕
+  --sub-only                                                   仅下载字幕
+  --cover-only                                                 仅下载封面
+  --skip-mux                                                   跳过混流步骤
+  --skip-subtitle                                              跳过字幕下载
+  --skip-cover                                                 跳过封面下载
+  --force-http                                                 下载音视频时强制使用HTTP协议替换HTTPS（国内模式默认开启，国际模式默认关闭）
+  -dd, --download-danmaku                                      下载弹幕
+  -ddf, --download-danmaku-formats <download-danmaku-formats>  指定需下载的弹幕格式, 用逗号分隔, 可选 xml/ass, 默认: "xml,ass"
+  --skip-ai                                                    跳过AI字幕下载(默认开启)
+  --subtitle-language <subtitle-language>                      筛选字幕语言，逗号分隔；zh/en 匹配语言族，zh-Hans/ai-zh 精确匹配
+  --ai-subtitle-policy <ai-subtitle-policy>                    字幕AI策略: exclude/include/prefer-human/only；显式指定时优先于 --skip-ai
+  --video-ascending                                            视频升序(最小体积优先)
+  --audio-ascending                                            音频升序(最小体积优先)
+  --allow-pcdn                                                 不替换PCDN域名, 仅在正常情况与--upos-host均无法下载时使用
+  -F, --file-pattern <file-pattern>                            使用内置变量自定义单P存储文件名:
   
-                                                 <videoTitle>: 视频主标题
-                                                 <pageNumber>: 视频分P序号
-                                                 <pageNumberWithZero>: 视频分P序号(按总分P数位数补零)
-                                                 <pageNumberWithZero:N>: 视频分P序号(固定至少N位, 1～10)
-                                                 <pageTitle>: 视频分P标题
-                                                 <bvid>: 视频BV号
-                                                 <aid>: 视频aid
-                                                 <cid>: 视频cid
-                                                 <dfn>: 视频清晰度
-                                                 <res>: 视频分辨率
-                                                 <fps>: 视频帧率
-                                                 <videoCodecs>: 视频编码
-                                                 <videoBandwidth>: 视频码率
-                                                 <audioCodecs>: 音频编码
-                                                 <audioBandwidth>: 音频码率
-                                                 <ownerName>: 上传者名称
-                                                 <ownerMid>: 上传者mid
-                                                 <publishDate>: 收藏夹/番剧/合集发布时间
-                                                 <videoDate>: 视频发布时间(分p视频发布时间与<publishDate>相同)
-                                                 <apiType>: API类型(TV/APP/INTL/WEB)
+                                                               <videoTitle>: 视频主标题
+                                                               <pageNumber>: 视频分P序号
+                                                               <pageNumberWithZero>: 视频分P序号(按总分P数位数补零)
+                                                               <pageNumberWithZero:N>: 视频分P序号(固定至少N位, 1～10)
+                                                               <pageTitle>: 视频分P标题
+                                                               <bvid>: 视频BV号
+                                                               <aid>: 视频aid
+                                                               <cid>: 视频cid
+                                                               <dfn>: 视频清晰度
+                                                               <res>: 视频分辨率
+                                                               <fps>: 视频帧率
+                                                               <videoCodecs>: 视频编码
+                                                               <videoBandwidth>: 视频码率
+                                                               <audioCodecs>: 音频编码
+                                                               <audioBandwidth>: 音频码率
+                                                               <ownerName>: 上传者名称
+                                                               <ownerMid>: 上传者mid
+                                                               <publishDate>: 收藏夹/番剧/合集发布时间
+                                                               <videoDate>: 视频发布时间(分p视频发布时间与<publishDate>相同)
+                                                               <apiType>: API类型(TV/APP/INTL/WEB)
   
-                                                 默认为: <videoTitle>
-  -M, --multi-file-pattern <multi-file-pattern>  使用内置变量自定义多P存储文件名:
+                                                               默认为: <videoTitle>
+  -M, --multi-file-pattern <multi-file-pattern>                使用内置变量自定义多P存储文件名:
   
-                                                 默认为: <videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>
-  -p, --select-page <select-page>                选择指定分p或分p范围: (-p 8 或 -p 1,2 或 -p 3-5 或 -p ALL 或 -p LAST 或 -p 3,5,LATEST)
-  --language <language>                          设置混流的音频语言(代码), 如chi, jpn等
-  --audio-language <code>                        选择 -info 列出的配音语言代码；WEB/DASH，输出文件附加语言后缀
-  -ua, --user-agent <user-agent>                 指定user-agent, 否则使用随机user-agent
-  -c, --cookie <cookie>                          设置字符串cookie用以下载网页接口的会员内容
-  -token, --access-token <access-token>          设置access_token用以下载TV/APP接口的会员内容
-  --aria2c-args <aria2c-args>                    调用aria2c的附加参数(默认参数包含"-x16 -s16 -j16 -k 5M", 使用时注意字符串转义)
-  --work-dir <work-dir>                          设置程序的工作目录
-  --ffmpeg-path <ffmpeg-path>                    设置ffmpeg的路径
-  --mp4box-path <mp4box-path>                    设置mp4box的路径
-  --aria2c-path <aria2c-path>                    设置aria2c的路径
-  --upos-host <upos-host>                        自定义upos服务器
-  --force-replace-host                           强制替换下载服务器host(默认开启)
-  --save-archives-to-file                        按视频和分P记录下载结果，用于后续跳过已完成的分P
-  --delay-per-page <delay-per-page>              设置下载合集分P之间的下载间隔时间(单位: 秒, 默认无间隔)
-  --download-all                                导出视频地址后下载UP主的全部投稿
-  --delay-per-video <delay-per-video>            设置批量下载视频之间的间隔时间(单位: 秒, 默认10秒)
-  --host <host>                                  指定BiliPlus host(使用BiliPlus需要access_token, 不需要cookie, 解析服务器能够获取你账号的大部分权限!)
-  --ep-host <ep-host>                            指定BiliPlus EP host(用于代理api.bilibili.com/pgc/view/web/season, 大部分解析服务器不支持代理该接口)
-  --tv-host <tv-host>                            自定义tv端接口请求Host(用于代理api.snm0516.aisee.tv)
-  --area <area>                                  (hk|tw|th) 使用BiliPlus时必选, 指定BiliPlus area
-  --config-file <config-file>                    读取指定的MeowDown本地配置文件(默认为: MeowDown.config)
-  --migrate                                      将程序目录中的旧版BBDown配置、登录文件和下载归档迁移为MeowDown文件
-  --api-token <api-token>                        服务器API鉴权Token，监听非本机地址且未配置时会自动生成
-  --version                                      检查当前版本
-  --update                                       更新到最新版本
-  -?, -h, --help                                 帮助
-
+                                                               默认为: <videoTitle>/[P<pageNumberWithZero:2>]<pageTitle>
+  -p, --select-page <select-page>                              选择指定分p或分p范围: (-p 8 或 -p 1,2 或 -p 3-5 或 -p ALL 或 -p LAST 或 -p 3,5,LATEST)
+  --language <language>                                        设置混流的音频语言(代码), 如chi, jpn等
+  --audio-language <audio-language>                            选择配音语言，精确匹配 -info 列出的代码；仅默认WEB/DASH模式，输出文件附加语言后缀
+  -ua, --user-agent <user-agent>                               指定user-agent；登录态默认使用持久化浏览器配置，匿名默认使用随机user-agent
+  cookie, -c <cookie>                                          设置字符串cookie用以下载网页接口的会员内容
+  access-token, -token <access-token>                          设置access_token用以下载TV/APP接口的会员内容
+  --aria2c-args <aria2c-args>                                  调用aria2c的附加参数(默认参数包含"-x16 -s16 -j16 -k 5M", 使用时注意字符串转义)
+  --work-dir <work-dir>                                        设置程序的工作目录
+  --ffmpeg-path <ffmpeg-path>                                  设置ffmpeg的路径
+  --mp4box-path <mp4box-path>                                  设置mp4box的路径
+  --aria2c-path <aria2c-path>                                  设置aria2c的路径
+  --upos-host <upos-host>                                      自定义upos服务器
+  --force-replace-host                                         强制替换下载服务器host(默认开启)
+  --save-archives-to-file                                      按视频和分P记录下载结果，用于后续跳过已完成的分P
+  --delay-per-page <delay-per-page>                            设置下载合集分P之间的下载间隔时间(单位: 秒, 默认无间隔)
+  --download-all                                               导出UP主空间TXT清单后，按清单逐条下载全部投稿
+  --delay-per-video <delay-per-video>                          批量下载时视频之间的间隔秒数，默认10，0为不等待
+  --host <host>                                                指定BiliPlus host(使用BiliPlus需要access_token, 不需要cookie, 解析服务器能够获取你账号的大部分权限!)
+  --ep-host <ep-host>                                          指定BiliPlus EP host(用于代理api.bilibili.com/pgc/view/web/season, 大部分解析服务器不支持代理该接口)
+  --tv-host <tv-host>                                          自定义tv端接口请求Host(用于代理api.snm0516.aisee.tv)
+  --area <area>                                                (hk|tw|th) 使用BiliPlus时必选, 指定BiliPlus area
+  --config-file <config-file>                                  读取指定的MeowDown本地配置文件(默认为: MeowDown.config)
+  --debug                                                      输出调试日志
+  --update                                                     将独立可执行程序更新到最新版本（测试版可更新到同版本号的后续测试版）；需单独使用
+  --migrate                                                    手动迁移程序目录中的旧版BBDown配置、登录文件和下载记录
+  --api-token <api-token>                                      服务器API鉴权Token，监听非本机地址且未配置时会自动生成
+  -?, -h, --help                                               Show help and usage information
+  --version                                                    Show version information
 
 Commands:
-  login    通过APP扫描二维码以登录您的WEB账号
-  logintv  通过APP扫描二维码以登录您的TV账号
-  serve    以服务器模式运行
+  login      通过APP扫描二维码以登录您的WEB账号
+  logintv    通过APP扫描二维码以登录您的TV账号
+  loginintl  登录国际站 BiliBili（Bstation），默认使用国际版 App 扫码
+  serve      以服务器模式运行
 ```
 
 # 功能
@@ -288,6 +279,16 @@ MeowDown logintv
 ```
 然后按照提示操作
  
+
+扫码登录国际站账号（Bstation，东南亚版）：
+```
+MeowDown loginintl
+```
+然后按照提示操作。也可以手动输入并保存国际站 Cookie（输入不回显），`--cookie` 与 `--import-cookie` 等价：
+```
+MeowDown loginintl --import-cookie
+```
+
 *PS: 如果登录报错`The type initializer for 'Gdip' threw an exception`，通常是运行环境缺少图形或二维码相关依赖，请按当前系统补齐依赖后重试*
 
 手动加载网页cookie：

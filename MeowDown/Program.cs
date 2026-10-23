@@ -16,8 +16,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using MeowDown.Core;
 using MeowDown.Core.Util;
-using System.CommandLine.Builder;
-using System.CommandLine.Invocation;
 using MeowDown.Core.Entity;
 using System.Globalization;
 using AudioMaterial = MeowDown.Core.Entity.Entity.AudioMaterial;
@@ -95,55 +93,40 @@ partial class Program
         Command loginCommand = new(
             "login",
             "通过APP扫描二维码以登录您的WEB账号");
-        rootCommand.AddCommand(loginCommand);
+        rootCommand.Add(loginCommand);
         Command loginTVCommand = new(
             "logintv",
             "通过APP扫描二维码以登录您的TV账号");
-        rootCommand.AddCommand(loginTVCommand);
+        rootCommand.Add(loginTVCommand);
         var loginIntlCommand = new Command("loginintl", "登录国际站 BiliBili（Bstation），默认使用国际版 App 扫码");
-        var importIntlCookie = new Option<bool>(["--cookie", "--import-cookie"], "手动输入并保存国际站 Cookie（输入不回显）")
+        var importIntlCookie = new Option<bool>("--cookie", "--import-cookie")
         {
+            Description = "手动输入并保存国际站 Cookie（输入不回显）",
             Arity = ArgumentArity.Zero
         };
-        loginIntlCommand.AddOption(importIntlCookie);
-        loginIntlCommand.SetHandler(async context =>
-        {
-            context.ExitCode = await (loginIntl ?? MeowDownIntlLoginUtil.RunAsync)(context.ParseResult.GetValueForOption(importIntlCookie));
-        });
-        rootCommand.AddCommand(loginIntlCommand);
+        loginIntlCommand.Add(importIntlCookie);
+        loginIntlCommand.SetAction((Func<ParseResult, Task<int>>)(parseResult =>
+            CommandLineInvoker.RunGuarded(() => (loginIntl ?? MeowDownIntlLoginUtil.RunAsync)(parseResult.GetValue(importIntlCookie)))));
+        rootCommand.Add(loginIntlCommand);
         BuildServeCommand(rootCommand);
         rootCommand.Description = "MeowDown是一个免费且便捷高效的哔哩哔哩下载/解析软件.";
         rootCommand.TreatUnmatchedTokensAsErrors = true;
 
         //WEB登录
-        loginCommand.SetHandler(async context =>
-        {
-            context.ExitCode = await (login ?? MeowDownLoginUtil.LoginWEB)();
-        });
+        loginCommand.SetAction((Func<ParseResult, Task<int>>)(parseResult =>
+            CommandLineInvoker.RunGuarded(() => (login ?? MeowDownLoginUtil.LoginWEB)())));
 
         //TV登录
-        loginTVCommand.SetHandler(async context =>
-        {
-            context.ExitCode = await (loginTv ?? MeowDownLoginUtil.LoginTV)();
-        });
+        loginTVCommand.SetAction((Func<ParseResult, Task<int>>)(parseResult =>
+            CommandLineInvoker.RunGuarded(() => (loginTv ?? MeowDownLoginUtil.LoginTV)())));
 
-        var parser = new CommandLineBuilder(rootCommand)
-            .UseDefaults()
-            .EnablePosixBundling(false)
-            .UseExceptionHandler((ex, context) =>
-            {
-                LogError(Config.DEBUG_LOG ? RedactSensitiveText(ex.ToString()) : ErrorText.Describe(ex));
-                try { Console.CursorVisible = true; } catch { }
-                Thread.Sleep(3000);
-                Environment.Exit(1);
-            }, 1)
-            .Build();
+        var invocation = CommandLineInvoker.CreateInvocationConfiguration();
 
         // Let the built-in version middleware run before required-URL checks.
         // A standalone version query must not migrate or load user files.
         if (args.Length == 1 && args[0] == "--version")
         {
-            return await parser.InvokeAsync(args);
+            return await rootCommand.Parse(args, CommandLineInvoker.ParsingConfiguration).InvokeAsync(invocation);
         }
 
         if (args.Any(arg => arg == "-update"))
@@ -170,13 +153,13 @@ partial class Program
         var newArgsList = new List<string>();
         var commandLineResult = rootCommand.Parse(args);
 
-        if (commandLineResult.FindResultFor(updateOption) is { IsImplicit: false })
+        if (commandLineResult.GetResult(updateOption) is { Implicit: false })
         {
             Console.Error.WriteLine(updateUsageError);
             return 1;
         }
 
-        if (commandLineResult.FindResultFor(migrateOption) is { IsImplicit: false })
+        if (commandLineResult.GetResult(migrateOption) is { Implicit: false })
         {
             Console.Error.WriteLine(migrationUsageError);
             return 1;
@@ -192,23 +175,24 @@ partial class Program
             return 1;
         }
 
-        Config.DEBUG_LOG = commandLineResult.GetValueForOption(CommandLineInvoker.Debug);
+        Config.DEBUG_LOG = commandLineResult.GetValue(CommandLineInvoker.Debug);
 
         if (commandLineResult.CommandResult.Command.Name == "loginintl")
         {
             if (!args.Any(argument => argument is "--help" or "-h" or "-?"))
-                return await parser.InvokeAsync(args);
+                return await rootCommand.Parse(args, CommandLineInvoker.ParsingConfiguration).InvokeAsync(invocation);
+            //GA 选项 Name 带前导"--"而内建 help 选项名为 "help"，符号名统一按去杠名比较
             var parentSymbols = rootCommand.Arguments.Cast<Symbol>().Concat(rootCommand.Options)
-                .Where(symbol => symbol.Name is not "help" and not "debug")
-                .Select(symbol => (Symbol: symbol, WasHidden: symbol.IsHidden)).ToArray();
+                .Where(symbol => symbol.Name.TrimStart('-') is not "help" and not "debug")
+                .Select(symbol => (Symbol: symbol, WasHidden: symbol.Hidden)).ToArray();
             try
             {
-                foreach (var state in parentSymbols) state.Symbol.IsHidden = true;
-                return await parser.InvokeAsync(args);
+                foreach (var state in parentSymbols) state.Symbol.Hidden = true;
+                return await rootCommand.Parse(args, CommandLineInvoker.ParsingConfiguration).InvokeAsync(invocation);
             }
             finally
             {
-                foreach (var state in parentSymbols) state.Symbol.IsHidden = state.WasHidden;
+                foreach (var state in parentSymbols) state.Symbol.Hidden = state.WasHidden;
             }
         }
 
@@ -222,10 +206,10 @@ partial class Program
                 {
                     return 1;
                 }
-                return await parser.InvokeAsync(newArgsList.ToArray());
+                return await rootCommand.Parse(newArgsList.ToArray(), CommandLineInvoker.ParsingConfiguration).InvokeAsync(invocation);
             }
             newArgsList.Add(commandLineResult.CommandResult.Command.Name);
-            return await parser.InvokeAsync(newArgsList.ToArray());
+            return await rootCommand.Parse(newArgsList.ToArray(), CommandLineInvoker.ParsingConfiguration).InvokeAsync(invocation);
         }
 
         newArgsList = ReorderRootArguments(commandLineResult, args);
@@ -245,94 +229,110 @@ partial class Program
             return 1;
         }
 
-        return await parser.InvokeAsync(newArgsList.ToArray());
+        return await rootCommand.Parse(newArgsList.ToArray(), CommandLineInvoker.ParsingConfiguration).InvokeAsync(invocation);
     }
 
     private static (Option<bool> updateOption, Option<bool> migrateOption) AddStandaloneFlags(Command rootCommand)
     {
-        var updateOption = new Option<bool>("--update", "将独立可执行程序更新到最新版本（测试版可更新到同版本号的后续测试版）；需单独使用")
+        var updateOption = new Option<bool>("--update")
         {
+            Description = "将独立可执行程序更新到最新版本（测试版可更新到同版本号的后续测试版）；需单独使用",
             Arity = ArgumentArity.Zero
         };
-        updateOption.AddValidator(result =>
+        updateOption.Validators.Add(result =>
         {
-            if (!result.IsImplicit) result.ErrorMessage = updateUsageError;
+            if (!result.Implicit) result.AddError(updateUsageError);
         });
-        rootCommand.AddOption(updateOption);
-        var migrateOption = new Option<bool>("--migrate", "手动迁移程序目录中的旧版BBDown配置、登录文件和下载记录")
+        rootCommand.Add(updateOption);
+        var migrateOption = new Option<bool>("--migrate")
         {
+            Description = "手动迁移程序目录中的旧版BBDown配置、登录文件和下载记录",
             Arity = ArgumentArity.Zero
         };
-        migrateOption.AddValidator(result =>
+        migrateOption.Validators.Add(result =>
         {
-            if (!result.IsImplicit) result.ErrorMessage = migrationUsageError;
+            if (!result.Implicit) result.AddError(migrationUsageError);
         });
-        rootCommand.AddOption(migrateOption);
+        rootCommand.Add(migrateOption);
         return (updateOption, migrateOption);
     }
 
     private static void BuildServeCommand(Command rootCommand)
     {
-        var serverUrlOpt = new Option<string>(
-            ["--listen", "-l"],
-            description: "服务器监听url");
-        var serverTokenOpt = new Option<string>(
-            ["--api-token"],
-            description: "服务器API鉴权Token，监听非本机地址且未配置时会自动生成");
-        var serverAllowAria2cArgsOpt = new Option<bool>(
-            ["--server-allow-aria2c-args"],
-            description: "允许服务器任务传入aria2c附加参数");
-        var serverAllowCustomOutputOpt = new Option<bool>(
-            ["--server-allow-custom-output"],
-            description: "允许服务器任务自定义工作目录和绝对/上级输出路径");
-        var serverAllowCustomNetworkHostsOpt = new Option<bool>(
-            ["--server-allow-custom-network-hosts"],
-            description: "允许服务器任务自定义解析和下载相关Host");
-        var serverAllowPrivateCallbacksOpt = new Option<bool>(
-            ["--server-allow-private-callbacks"],
-            description: "允许服务器任务回调内网或本机地址");
-        var serverDownloadRootOpt = new Option<string>(
-            ["--server-download-root"],
-            description: "服务器下载根目录，默认使用当前工作目录");
-        var serverMaxQueueOpt = new Option<int>(
-            ["--server-max-queue"],
-            description: "服务器任务队列最大长度，默认100");
-        var serverMaxFinishedOpt = new Option<int>(
-            ["--server-max-finished"],
-            description: "服务器最多保留的已完成任务数，默认1000");
-        var serverFinishedRetentionHoursOpt = new Option<int>(
-            ["--server-finished-retention-hours"],
-            description: "服务器已完成任务保留小时数，默认24");
-        var allowInsecureTlsOpt = new Option<bool>(
-            ["--allow-insecure-tls"],
-            description: "允许忽略TLS证书错误");
-        var cookieAllowedDomainsOpt = new Option<string>(
-            ["--cookie-allowed-domains"],
-            description: "允许携带Cookie的域名列表，用逗号分隔");
-        var maxGrpcMessageMbOpt = new Option<int>(
-            ["--max-grpc-message-mb"],
-            description: "gRPC响应最大解压大小(MiB)，默认64");
-        rootCommand.AddGlobalOption(serverTokenOpt);
+        var serverUrlOpt = new Option<string>("--listen", "-l")
+        {
+            Description = "服务器监听url"
+        };
+        var serverTokenOpt = new Option<string>("--api-token")
+        {
+            Description = "服务器API鉴权Token，监听非本机地址且未配置时会自动生成",
+            Recursive = true
+        };
+        var serverAllowAria2cArgsOpt = new Option<bool>("--server-allow-aria2c-args")
+        {
+            Description = "允许服务器任务传入aria2c附加参数"
+        };
+        var serverAllowCustomOutputOpt = new Option<bool>("--server-allow-custom-output")
+        {
+            Description = "允许服务器任务自定义工作目录和绝对/上级输出路径"
+        };
+        var serverAllowCustomNetworkHostsOpt = new Option<bool>("--server-allow-custom-network-hosts")
+        {
+            Description = "允许服务器任务自定义解析和下载相关Host"
+        };
+        var serverAllowPrivateCallbacksOpt = new Option<bool>("--server-allow-private-callbacks")
+        {
+            Description = "允许服务器任务回调内网或本机地址"
+        };
+        var serverDownloadRootOpt = new Option<string>("--server-download-root")
+        {
+            Description = "服务器下载根目录，默认使用当前工作目录"
+        };
+        var serverMaxQueueOpt = new Option<int>("--server-max-queue")
+        {
+            Description = "服务器任务队列最大长度，默认100"
+        };
+        var serverMaxFinishedOpt = new Option<int>("--server-max-finished")
+        {
+            Description = "服务器最多保留的已完成任务数，默认1000"
+        };
+        var serverFinishedRetentionHoursOpt = new Option<int>("--server-finished-retention-hours")
+        {
+            Description = "服务器已完成任务保留小时数，默认24"
+        };
+        var allowInsecureTlsOpt = new Option<bool>("--allow-insecure-tls")
+        {
+            Description = "允许忽略TLS证书错误"
+        };
+        var cookieAllowedDomainsOpt = new Option<string>("--cookie-allowed-domains")
+        {
+            Description = "允许携带Cookie的域名列表，用逗号分隔"
+        };
+        var maxGrpcMessageMbOpt = new Option<int>("--max-grpc-message-mb")
+        {
+            Description = "gRPC响应最大解压大小(MiB)，默认64"
+        };
+        rootCommand.Add(serverTokenOpt);
         Command runAsServerCommand = new(
                 "serve",
                 "以服务器模式运行")
             { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverAllowPrivateCallbacksOpt, serverDownloadRootOpt, serverMaxQueueOpt, serverMaxFinishedOpt, serverFinishedRetentionHoursOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
-        runAsServerCommand.SetHandler(context =>
+        runAsServerCommand.SetAction((Func<ParseResult, Task<int>>)(parseResult => CommandLineInvoker.RunGuarded(() =>
         {
             var defaults = new MeowDownServerOptions();
-            var listenUrl = context.ParseResult.GetValueForOption(serverUrlOpt);
-            var apiToken = context.ParseResult.GetValueForOption(serverTokenOpt);
-            var allowAria2cArgs = context.ParseResult.GetValueForOption(serverAllowAria2cArgsOpt);
-            var allowCustomOutput = context.ParseResult.GetValueForOption(serverAllowCustomOutputOpt);
-            var allowCustomNetworkHosts = context.ParseResult.GetValueForOption(serverAllowCustomNetworkHostsOpt);
-            var allowPrivateCallbacks = context.ParseResult.GetValueForOption(serverAllowPrivateCallbacksOpt);
-            var downloadRoot = context.ParseResult.GetValueForOption(serverDownloadRootOpt);
-            var maxQueueLength = context.ParseResult.GetValueForOption(serverMaxQueueOpt);
-            var maxFinishedTasks = context.ParseResult.GetValueForOption(serverMaxFinishedOpt);
-            var finishedRetentionHours = context.ParseResult.GetValueForOption(serverFinishedRetentionHoursOpt);
-            var allowInsecureTls = context.ParseResult.GetValueForOption(allowInsecureTlsOpt);
-            var cookieAllowedDomains = context.ParseResult.GetValueForOption(cookieAllowedDomainsOpt);
-            var maxGrpcMessageMb = context.ParseResult.GetValueForOption(maxGrpcMessageMbOpt);
+            var listenUrl = parseResult.GetValue(serverUrlOpt);
+            var apiToken = parseResult.GetValue(serverTokenOpt);
+            var allowAria2cArgs = parseResult.GetValue(serverAllowAria2cArgsOpt);
+            var allowCustomOutput = parseResult.GetValue(serverAllowCustomOutputOpt);
+            var allowCustomNetworkHosts = parseResult.GetValue(serverAllowCustomNetworkHostsOpt);
+            var allowPrivateCallbacks = parseResult.GetValue(serverAllowPrivateCallbacksOpt);
+            var downloadRoot = parseResult.GetValue(serverDownloadRootOpt);
+            var maxQueueLength = parseResult.GetValue(serverMaxQueueOpt);
+            var maxFinishedTasks = parseResult.GetValue(serverMaxFinishedOpt);
+            var finishedRetentionHours = parseResult.GetValue(serverFinishedRetentionHoursOpt);
+            var allowInsecureTls = parseResult.GetValue(allowInsecureTlsOpt);
+            var cookieAllowedDomains = parseResult.GetValue(cookieAllowedDomainsOpt);
+            var maxGrpcMessageMb = parseResult.GetValue(maxGrpcMessageMbOpt);
             var serverOptions = defaults with
             {
                 AllowAria2cArgs = allowAria2cArgs,
@@ -353,9 +353,10 @@ partial class Program
                 allowInsecureTls,
                 cookieAllowedDomains,
                 maxGrpcMessageMb,
-                context.ParseResult.GetValueForOption(CommandLineInvoker.Debug));
-        });
-        rootCommand.AddCommand(runAsServerCommand);
+                parseResult.GetValue(CommandLineInvoker.Debug));
+            return Task.FromResult(0);
+        })));
+        rootCommand.Add(runAsServerCommand);
     }
 
     private static List<string> ReorderRootArguments(ParseResult commandLineResult, string[] args)
@@ -363,10 +364,12 @@ partial class Program
         var newArgsList = new List<string>();
         foreach (var a in commandLineResult.CommandResult.Children.OfType<ArgumentResult>())
         {
-            newArgsList.Add(a.Tokens[0].Value);
+            //GA 对未填充的必需参数也会生成空 Tokens 的 ArgumentResult，跳过之
+            if (a.Tokens.Count > 0) newArgsList.Add(a.Tokens[0].Value);
         }
+        //GA 会把未指定 bool 选项的隐式结果也放进 Children，重排时只保留命令行显式给出的选项
         foreach (var o in CommandLineOptionOrder.ByAppearance(
-            commandLineResult.CommandResult.Children.OfType<OptionResult>(),
+            commandLineResult.CommandResult.Children.OfType<OptionResult>().Where(result => !result.Implicit),
             args))
         {
             newArgsList.AddRange(CommandLineOptionOrder.Arguments(o));

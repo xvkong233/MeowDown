@@ -103,10 +103,10 @@ public class SubtitleSelectionTests
             return Task.CompletedTask;
         });
 
-        var exitCode = await command.InvokeAsync([
+        var exitCode = await command.Parse([
             "BV1xx411c7mD", "--skip-ai", "false", "--subtitle-language", "zh,en",
             "--ai-subtitle-policy", "include"
-        ]);
+        ]).InvokeAsync();
 
         Assert.Equal(0, exitCode);
         Assert.NotNull(option);
@@ -128,7 +128,7 @@ public class SubtitleSelectionTests
             return Task.CompletedTask;
         });
 
-        var exitCode = await command.InvokeAsync(["BV1xx411c7mD", name, value]);
+        var exitCode = await command.Parse(["BV1xx411c7mD", name, value]).InvokeAsync();
 
         Assert.NotEqual(0, exitCode);
         Assert.False(invoked);

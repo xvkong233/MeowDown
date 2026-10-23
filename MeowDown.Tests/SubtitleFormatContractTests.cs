@@ -14,10 +14,10 @@ public class SubtitleFormatContractTests
             bound = option;
             return Task.CompletedTask;
         });
-        var exit = await command.InvokeAsync([
+        var exit = await command.Parse([
             "https://www.bilibili.tv/play/2110869", "-intl", "-ia",
             "--subtitle-language", "en,th", "--ai-subtitle-policy", "include"
-        ]);
+        ]).InvokeAsync();
 
         Assert.Equal(0, exit);
         Assert.NotNull(bound);

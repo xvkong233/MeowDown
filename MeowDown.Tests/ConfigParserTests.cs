@@ -96,7 +96,7 @@ public class ConfigParserTests
         try
         {
             Assert.True(MeowDownConfigParser.HandleConfig(arguments, rootCommand));
-            Assert.Equal(0, await rootCommand.InvokeAsync(arguments.ToArray()));
+            Assert.Equal(0, await rootCommand.Parse(arguments.ToArray()).InvokeAsync());
 
             Assert.NotNull(bound);
             Assert.Equal(aria2cArgs, bound.Aria2cArgs);
@@ -193,11 +193,11 @@ public class ConfigParserTests
     private static RootCommand CreateRootCommand(Func<MyOption, Task>? action = null)
     {
         var rootCommand = CommandLineInvoker.GetRootCommand(action ?? (_ => Task.CompletedTask));
-        rootCommand.AddGlobalOption(new Option<string>(["--api-token"]));
-        rootCommand.AddCommand(new Command("serve")
+        rootCommand.Add(new Option<string>("--api-token") { Recursive = true });
+        rootCommand.Add(new Command("serve")
         {
-            new Option<string>(["--listen", "-l"]),
-            new Option<int>(["--server-max-queue"])
+            new Option<string>("--listen", "-l"),
+            new Option<int>("--server-max-queue")
         });
         rootCommand.TreatUnmatchedTokensAsErrors = true;
         return rootCommand;

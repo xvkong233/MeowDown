@@ -17,7 +17,7 @@ public class SpaceBatchDownloadTests
         var args = new List<string> { SpaceUrl, "--delay-per-video", "3", "--delay-per-page", "7" };
         if (downloadAll) args.Add("--download-all");
 
-        Assert.Equal(0, await command.InvokeAsync(args.ToArray()));
+        Assert.Equal(0, await command.Parse(args.ToArray()).InvokeAsync());
         Assert.NotNull(bound);
         Assert.Equal(downloadAll, bound.DownloadAll);
         Assert.Equal(3, bound.DelayPerVideo);

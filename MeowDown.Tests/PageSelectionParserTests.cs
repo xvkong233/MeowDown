@@ -14,7 +14,7 @@ public class PageSelectionParserTests
             return Task.CompletedTask;
         });
 
-        Assert.Equal(0, await command.InvokeAsync(["BV1xx411c7mD", "-p", ""]));
+        Assert.Equal(0, await command.Parse(["BV1xx411c7mD", "-p", ""]).InvokeAsync());
         Assert.NotNull(captured);
         Assert.True(captured.SelectPageSpecified);
         Assert.Throws<ArgumentException>(

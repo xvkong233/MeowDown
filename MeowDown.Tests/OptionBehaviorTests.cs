@@ -238,7 +238,7 @@ public class OptionBehaviorTests
             return Task.CompletedTask;
         });
 
-        Assert.Equal(0, await command.InvokeAsync(arguments));
+        Assert.Equal(0, await command.Parse(arguments).InvokeAsync());
         Assert.NotNull(captured);
         Assert.Equal(encodingFirst, captured.EncodingPriorityFirst);
     }
@@ -265,7 +265,7 @@ public class OptionBehaviorTests
         try
         {
             Assert.True(MeowDownConfigParser.HandleConfig(arguments, command));
-            Assert.Equal(0, await command.InvokeAsync(arguments.ToArray()));
+            Assert.Equal(0, await command.Parse(arguments.ToArray()).InvokeAsync());
             Assert.NotNull(captured);
             Assert.Equal(encodingFirst, captured.EncodingPriorityFirst);
         }
@@ -323,8 +323,8 @@ public class OptionBehaviorTests
             return Task.CompletedTask;
         });
 
-        Assert.Equal(0, await command.InvokeAsync([
-            "BV1xx411c7mD", "-q", "HDR Vivid,8K 超高清", "-info"]));
+        Assert.Equal(0, await command.Parse([
+            "BV1xx411c7mD", "-q", "HDR Vivid,8K 超高清", "-info"]).InvokeAsync());
         Assert.NotNull(captured);
 
         var dfnPriority = Program.ParseDfnPriority(captured);
@@ -354,7 +354,7 @@ public class OptionBehaviorTests
             return Task.CompletedTask;
         });
 
-        Assert.Equal(0, await command.InvokeAsync(["BV1xx411c7mD", "-e", value, "-info"]));
+        Assert.Equal(0, await command.Parse(["BV1xx411c7mD", "-e", value, "-info"]).InvokeAsync());
         Assert.NotNull(captured);
 
         Assert.Empty(Program.ParseEncodingPriority(captured, out var firstEncoding));

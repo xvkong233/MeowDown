@@ -15,7 +15,7 @@ public class AudioLanguageOptionsTests
             return Task.CompletedTask;
         });
 
-        Assert.Equal(0, await command.InvokeAsync(["BV1xx411c7mD", "--audio-language", "en-US", "--language", "eng", "-info"]));
+        Assert.Equal(0, await command.Parse(["BV1xx411c7mD", "--audio-language", "en-US", "--language", "eng", "-info"]).InvokeAsync());
         Assert.NotNull(selected);
         Assert.Equal("en-US", selected.AudioLanguage);
         Assert.Equal("eng", selected.Language);
@@ -26,7 +26,7 @@ public class AudioLanguageOptionsTests
     public async Task Cli_InvalidLanguageDoesNotRunWork()
     {
         var command = CommandLineInvoker.GetRootCommand(_ => throw new Exception("Must not run"));
-        Assert.NotEqual(0, await command.InvokeAsync(["BV1xx411c7mD", "--audio-language", "en,zh"]));
+        Assert.NotEqual(0, await command.Parse(["BV1xx411c7mD", "--audio-language", "en,zh"]).InvokeAsync());
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class AudioLanguageOptionsTests
             var args = new List<string> { "BV1xx411c7mD", "--config-file", path };
 
             Assert.True(MeowDownConfigParser.HandleConfig(args, command));
-            Assert.Equal(0, await command.InvokeAsync(args.ToArray()));
+            Assert.Equal(0, await command.Parse(args.ToArray()).InvokeAsync());
             Assert.Equal("en-US", selected?.AudioLanguage);
         }
         finally
