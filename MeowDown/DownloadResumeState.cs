@@ -40,6 +40,30 @@ internal sealed record DownloadResumeState(
             && (total is null || TotalLength == total) && LocalLength >= 0 && LocalLength <= RangeLength
             && (!Complete || LocalLength == RangeLength);
 
+    // Shared restore gate for the whole-file and per-clip trackers: the saved
+    // record must still describe this exact range and resource version, and the
+    // bytes on disk must hash to the recorded prefix. Its reuse terms mirror
+    // DeriveResumePlan item by item — same source, usable validator that still
+    // matches the expected resource, KnownChanged as the gate — so a state
+    // restored without verification is exactly one the download plan would
+    // append to without re-reading the retained bytes.
+    internal static async Task<RestoreDecision?> EvaluateRestoreAsync(
+        DownloadResumeState? saved, string identity, long from, long? to,
+        string url, string? sourceObjectHash, DownloadResourceMetadata? metadata, string filePath)
+    {
+        if (saved is not { } state
+            || !state.MatchesRange(identity, from, to, metadata?.TotalLength)
+            || (metadata is { } expected && state.Validator.KnownChanged(expected.Validator))
+            || !await state.MatchesFileAsync(filePath))
+            return null;
+        var sameSource = state.MatchesSource(url, sourceObjectHash);
+        var sameVersion = state.Validator.IsUsable
+            && (metadata is null || state.Validator.Matches(metadata.Validator));
+        var needsVerification = !sameSource || !sameVersion
+            || new FileInfo(filePath).Length > state.LocalLength;
+        return new RestoreDecision(state.LocalLength, needsVerification, sameSource, sameVersion);
+    }
+
     internal async Task<bool> MatchesFileAsync(string path)
     {
         if (!File.Exists(path)) return false;
@@ -109,3 +133,9 @@ internal sealed record DownloadResumeState(
 
 [JsonSerializable(typeof(DownloadResumeState))]
 internal partial class DownloadResumeStateJsonContext : JsonSerializerContext { }
+
+// Verdict of the shared restore gate: whether the saved resume record may be
+// restored into the progress tracker, plus the facts that drove the decision
+// so callers can keep logging them unchanged.
+internal readonly record struct RestoreDecision(
+    long LocalLength, bool NeedsVerification, bool SameSource, bool SameVersion);

@@ -91,18 +91,8 @@ internal sealed class PageDownloadRunner(
     }
 
     private static bool MustStopBatch(Exception error)
-    {
-        var transient = NetworkRetry.IsTransient(error);
-        for (Exception? cause = error; cause is not null; cause = cause.InnerException)
-            if (cause is OutOfMemoryException or AccessViolationException or SubtitleUnavailableException
-                || (cause is OperationCanceledException && !transient)) return true;
-        return false;
-    }
+        => PageDownloadRetry.Classify(error).StopsBatch(NetworkRetry.IsTransient(error));
 
     private static bool IsSubtitleFailure(Exception error)
-    {
-        for (Exception? cause = error; cause is not null; cause = cause.InnerException)
-            if (cause is SubtitleUnavailableException) return true;
-        return false;
-    }
+        => PageDownloadRetry.Classify(error).IsSubtitleUnavailable;
 }

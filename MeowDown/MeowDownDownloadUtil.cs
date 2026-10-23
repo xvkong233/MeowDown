@@ -309,9 +309,20 @@ internal static class MeowDownDownloadUtil
             await SaveAsync(true);
             onTransferProgress?.Invoke(new(position, 0, false, verificationLength, verificationLength));
         }
-        catch
+        catch (Exception error)
         {
-            await SaveAsync(false);
+            // The compensation checkpoint keeps the verified prefix resumable,
+            // but a failing save must never bury the original failure: log the
+            // secondary error and rethrow the original with its stack intact.
+            try
+            {
+                await SaveAsync(false);
+            }
+            catch (Exception compensation)
+            {
+                LogDebug("补偿保存续传状态失败: {0}", ErrorText.Describe(compensation));
+                ExceptionDispatchInfo.Capture(error).Throw();
+            }
             throw;
         }
     }
@@ -414,12 +425,12 @@ internal static class MeowDownDownloadUtil
         using var progress = new ProgressBar(config.RelatedTask);
         var tracker = new DownloadProgressTracker(metadata?.TotalLength ?? 0,
             [metadata?.TotalLength ?? long.MaxValue], progress.ReportDownload, message => Log(message));
-        var saved = await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(tmpName + ".resume", config.RestrictedOutputRoot));
-        if (saved is not null && saved.MatchesRange(DownloadResumeState.Scope(url, config.ResourceIdentity), 0, null, metadata?.TotalLength)
-            && (metadata is null || !saved.Validator.KnownChanged(metadata.Validator)) && await saved.MatchesFileAsync(tmpName))
-            tracker.Restore(0, saved.LocalLength, !saved.MatchesSource(url, sourceObjectHash)
-                || !saved.Validator.IsUsable || (metadata is not null && !saved.Validator.Matches(metadata.Validator))
-                || new FileInfo(tmpName).Length > saved.LocalLength);
+        var restore = await DownloadResumeState.EvaluateRestoreAsync(
+            await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(
+                tmpName + ".resume", config.RestrictedOutputRoot)),
+            DownloadResumeState.Scope(url, config.ResourceIdentity), 0, null, url, sourceObjectHash,
+            metadata, tmpName);
+        if (restore is { } restored) tracker.Restore(0, restored.LocalLength, restored.NeedsVerification);
         tracker.ReportRestored();
         try
         {
@@ -495,19 +506,15 @@ internal static class MeowDownDownloadUtil
         foreach (var clip in allClips)
         {
             config.CancellationToken.ThrowIfCancellationRequested();
-            var saved = await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(
-                clipPaths[clip.index] + ".resume", config.RestrictedOutputRoot));
-            if (saved is not null
-                && saved.MatchesRange(identity, clip.from, clip.to, fileSize)
-                && !saved.Validator.KnownChanged(metadata.Validator)
-                && await saved.MatchesFileAsync(clipPaths[clip.index]))
-            {
-                var sameSource = saved.MatchesSource(url, sourceObjectHash);
-                var sameVersion = saved.Validator.IsUsable && saved.Validator.Matches(metadata.Validator);
-                var verify = !sameSource || !sameVersion || new FileInfo(clipPaths[clip.index]).Length > saved.LocalLength;
-                if (verify) LogDebug("分片 {0} 需逐字节核验：同一来源={1}，版本一致={2}", clip.index, sameSource, sameVersion);
-                tracker.Restore(clip.index, saved.LocalLength, verify);
-            }
+            var restore = await DownloadResumeState.EvaluateRestoreAsync(
+                await DownloadResumeState.LoadAsync(OutputPathPolicy.ResolveArtifact(
+                    clipPaths[clip.index] + ".resume", config.RestrictedOutputRoot)),
+                identity, clip.from, clip.to, url, sourceObjectHash, metadata, clipPaths[clip.index]);
+            if (restore is not { } restored) continue;
+            if (restored.NeedsVerification)
+                LogDebug("分片 {0} 需逐字节核验：同一来源={1}，版本一致={2}",
+                    clip.index, restored.SameSource, restored.SameVersion);
+            tracker.Restore(clip.index, restored.LocalLength, restored.NeedsVerification);
         }
         tracker.ReportRestored();
         using var batch = CancellationTokenSource.CreateLinkedTokenSource(config.CancellationToken);

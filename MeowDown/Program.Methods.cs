@@ -564,7 +564,11 @@ internal partial class Program
         bool video, string resourceIdentity)
     {
         downloadConfig = downloadConfig with { ResourceIdentity = resourceIdentity };
-        if (downloadConfig.MultiThread && !url.Contains("-cmcc-"))
+        // cmcc CDN 存在 HTTPS 重写问题（会把 https 媒体地址改成不可用链接），
+        // 现状是命中 -cmcc- 域名时禁用多线程并强制 ForceHttp=false 绕开。
+        // TODO(owner): 这层针对 cmcc 的覆盖是否仍需保留，留待决策。
+        var isCmcc = url.Contains("-cmcc-");
+        if (downloadConfig.MultiThread && !isCmcc)
         {
             var downloadedClips = await MultiThreadDownloadFileAsync(url, destPath, downloadConfig);
             if (downloadedClips.Length > 0)
@@ -575,7 +579,7 @@ internal partial class Program
         }
         else
         {
-            if (downloadConfig.MultiThread && url.Contains("-cmcc-"))
+            if (downloadConfig.MultiThread && isCmcc)
             {
                 LogWarn("检测到cmcc域名cdn, 已经禁用多线程");
                 downloadConfig.ForceHttp = false;
