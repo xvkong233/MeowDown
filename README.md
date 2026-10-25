@@ -479,6 +479,43 @@ API详细请参考[json-api-doc.md](./json-api-doc.md)
 
 </details>
 
+# Web 服务部署
+
+`serve` 模式内置多用户 Web 服务：同源托管网页前端（登录/注册、在线解析与下载、B站扫码绑定、管理员面板），API 契约见 [docs/web-api.md](./docs/web-api.md)。推荐使用 Docker Compose 一键部署（仓库根目录的 `Dockerfile` + `docker-compose.yml`）：
+
+```bash
+# 构建镜像并启动
+docker compose up -d --build
+
+# 获取管理员初始密码（仅首次启动打印一次）
+docker compose logs meowdown | grep "已创建Web管理员账号"
+```
+
+启动后浏览器访问 `http://<服务器IP>:23333` 即可使用。
+
+## 默认账号
+
+首次启动时 Web 用户库为空，服务端自动引导创建管理员账号：
+
+- 用户名固定为 `admin`，角色 `admin`。
+- 初始密码优先取启动参数 `--web-admin-password`（可在 `docker-compose.yml` 中取消 `command` 注释并填写）。
+- 未配置该参数时自动生成 16 位随机密码，**仅在服务器日志打印一次**，格式为 `已创建Web管理员账号: admin 初始密码: <password>`，请用 `docker compose logs` 查看并立即登录修改；修改密码前，每次登录响应都带 `passwordChangeRequired: true` 提示。
+- 自助注册默认关闭，管理员可在网页管理面板开启，或启动时加 `--web-allow-registration`。
+
+## 数据持久化
+
+数据均落在 compose 挂载的宿主机目录（`./data/`），升级或重建容器不丢失：
+
+| 宿主机目录 | 容器目录 | 内容 |
+| --- | --- | --- |
+| `./data/web-data` | `/data/web-data` | Web 用户账号（`web-users.json`）、每用户B站绑定凭据（`bili/`）、运行时配置（`web-settings.json`） |
+| `./data/downloads` | `/data/downloads` | 下载输出根目录，Web 任务按用户存放于 `web-users/<userId>/` |
+
+## HTTPS 与安全
+
+- 服务本身只提供 HTTP，HTTPS 请由反向代理（nginx/caddy 等）终止，并为容器追加 `--web-secure-cookie` 参数（会话 Cookie 附加 `Secure`），或由反代还原 `X-Forwarded-Proto`。
+- 旧 Token API（`/add-task` 等）在容器内同样可用：监听非本机地址且未配置 `--api-token` 时会自动生成并打印到日志（与 Web 会话互不通用）。
+
 # 演示
 ![1](https://user-images.githubusercontent.com/20772925/88686407-a2001480-d129-11ea-8aac-97a0c71af115.gif)
 

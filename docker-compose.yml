@@ -1,0 +1,35 @@
+# MeowDown Web 服务一键部署
+#   启动:   docker compose up -d --build
+#   初始密码（仅首次启动打印一次）: docker compose logs meowdown | grep "已创建Web管理员账号"
+services:
+  meowdown:
+    build: .
+    image: meowdown:latest
+    restart: unless-stopped
+    ports:
+      - "23333:23333"
+    volumes:
+      - ./data/web-data:/data/web-data      # Web 用户账号、B站绑定凭据、运行时配置
+      - ./data/downloads:/data/downloads    # 下载输出根目录（Web 任务按用户存放于 web-users/<userId>/）
+      # 可选：自定义 CLI 级配置（文件名模板、清晰度优先级等），挂在程序目录下即生效
+      # - ./MeowDown.config:/app/MeowDown.config:ro
+    # 默认命令沿用镜像内 CMD；如需固定管理员初始密码、开启自助注册，
+    # 或已在 HTTPS 反向代理之后需要给会话 Cookie 附加 Secure，取消注释并按需追加参数：
+    # command:
+    #   - serve
+    #   - -l
+    #   - http://0.0.0.0:23333
+    #   - --web-data-dir
+    #   - /data/web-data
+    #   - --server-download-root
+    #   - /data/downloads
+    #   - --web-admin-password
+    #   - 换成你的初始密码
+    #   - --web-secure-cookie
+    #   - --web-allow-registration
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-s", "-o", "/dev/null", "http://127.0.0.1:23333/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
