@@ -47,7 +47,7 @@ export function render(root, { mode = 'login', setUser, onDone }) {
 
   root.querySelectorAll('#auth-tabs button').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const target = btn.dataset.mode === mode ? null : `#${btn.dataset.mode}`;
+      const target = btn.dataset.mode === mode ? null : `#/${btn.dataset.mode}`;
       if (target) location.hash = target;
     });
   });

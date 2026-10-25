@@ -140,7 +140,13 @@ public class MeowDownApiServer
         });
         WebApiEndpoints.UseWebAuth(app, web);
         app.UseDefaultFiles();
-        app.UseStaticFiles();
+        // 静态资源无内容哈希，必须每次回源验证（no-cache = 可缓存但需重验证），
+        // 否则发新版后浏览器可能继续用内存里的旧 JS，表现为“改了没生效”。
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            OnPrepareResponse = ctx =>
+                ctx.Context.Response.Headers.CacheControl = "no-cache",
+        });
         var taskStatusApi = app.MapGroup("/get-tasks");
         taskStatusApi.MapGet("/", handler: () => Results.Json(taskStore.GetSnapshot(), AppJsonSerializerContext.Default.DownloadTaskCollection));
         taskStatusApi.MapGet("/running", handler: () => Results.Json(taskStore.GetRunningSnapshot(), AppJsonSerializerContext.Default.ListDownloadTask));
