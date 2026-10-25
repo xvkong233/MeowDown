@@ -588,3 +588,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   details.adv .adv-body { grid-template-columns: 1fr; }
   .parse-bar { flex-direction: column; }
 }
+
+/* hidden 属性必须真正隐藏：类规则里的 display:flex 会覆盖 UA 的 [hidden]{display:none}，
+   曾导致 .qr-mask 遮罩常显，把二维码压成 6% 对比度扫不出来 */
+[hidden] { display: none !important; }
