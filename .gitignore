@@ -387,3 +387,6 @@ MeowDown.archives
 
 # ZCode workflow drafts
 .zcode/
+
+# MeowDown 容器运行时数据（docker compose 卷挂载）
+/data/
