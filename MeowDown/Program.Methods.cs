@@ -291,6 +291,16 @@ internal partial class Program
     /// <param name="myOption"></param>
     private static string? LoadCredentials(MyOption myOption)
     {
+        if (myOption.SuppressLocalCredentials)
+        {
+            // Web 多用户任务：凭据已由服务端按用户注入 Config.COOKIE（可能为空=未绑定），
+            // 禁止回退到服务器全局登录文件，避免越权使用服务器登录态。
+            if (!string.IsNullOrEmpty(Config.COOKIE))
+            {
+                AuthenticatedWebProfileStore.Configure(APP_DIR);
+            }
+            return null;
+        }
         var loaded = IntlCookieStore.Load(Config.COOKIE, APP_DIR, myOption.UseIntlApi);
         string? webCookieFilePath = loaded.FilePath;
         if (webCookieFilePath is not null)

@@ -32,6 +32,11 @@
     <None Include="..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
+  <!-- 静态前端随构建复制到输出目录，非 Development 环境下 StaticWebAssets 不生效 -->
+  <ItemGroup>
+    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="MeowDown.Tests" />
   </ItemGroup>

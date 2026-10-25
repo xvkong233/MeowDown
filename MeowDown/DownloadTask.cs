@@ -14,18 +14,27 @@ public sealed class DownloadTask
     {
     }
 
-    internal DownloadTask(string taskId, string aid, string url, long taskCreateTime)
+    internal DownloadTask(string taskId, string aid, string url, long taskCreateTime,
+        string? ownerId = null, string? ownerName = null)
     {
         TaskId = taskId;
         Aid = aid;
         Url = url;
         TaskCreateTime = taskCreateTime;
+        OwnerId = ownerId;
+        OwnerName = ownerName;
     }
 
     public string TaskId { get; }
     public string Aid { get; private set; }
     public string Url { get; }
     public long TaskCreateTime { get; }
+
+    // Web 模式任务归属（旧 Token API 的任务为 null，为纯增量字段）
+    [JsonInclude]
+    public string? OwnerId { get; }
+    [JsonInclude]
+    public string? OwnerName { get; }
 
     internal static double CalculateDownloadSpeed(double totalDownloadedBytes, long startedAt, long finishedAt)
     {
@@ -119,7 +128,7 @@ public sealed class DownloadTask
     {
         lock (stateLock)
         {
-            return new DownloadTask(TaskId, Aid, Url, TaskCreateTime)
+            return new DownloadTask(TaskId, Aid, Url, TaskCreateTime, OwnerId, OwnerName)
             {
                 taskStartTime = taskStartTime,
                 Title = Title,

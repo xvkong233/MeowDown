@@ -57,6 +57,9 @@ internal class MyOption
     public string WorkDir { get; set; } = "";
     // Server-owned boundary, excluded from JSON and preserved by batch clones.
     internal string? RestrictedOutputRoot { get; set; }
+    // Web 多用户任务标记：凭据已由服务端按用户注入 Cookie 字段，
+    // 禁止 LoadCredentials 回退到服务器全局登录文件（MeowDown.data / MeowDownIntl.data）。
+    internal bool SuppressLocalCredentials { get; set; }
     public string FFmpegPath { get; set; } = "";
     public string Mp4boxPath { get; set; } = "";
     public string Aria2cPath { get; set; } = "";

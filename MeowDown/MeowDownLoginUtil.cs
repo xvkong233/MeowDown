@@ -173,7 +173,7 @@ internal static class MeowDownLoginUtil
         }
     }
 
-    private static async Task<LoginStatusResult> GetLoginStatusAsync(string qrcodeKey)
+    internal static async Task<LoginStatusResult> GetLoginStatusAsync(string qrcodeKey)
     {
         string queryUrl = $"https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key={qrcodeKey}&source=main-fe-header";
         using var request = new HttpRequestMessage(HttpMethod.Get, queryUrl);
@@ -300,5 +300,16 @@ internal static class MeowDownLoginUtil
         }
     }
 
-    private readonly record struct LoginStatusResult(string ResponseBody, string[] SetCookieHeaders);
+    internal readonly record struct LoginStatusResult(string ResponseBody, string[] SetCookieHeaders);
+
+    /// <summary>发起 Web 扫码登录：返回二维码内容 URL 与 qrcode_key（供轮询），Web 绑定流程与 CLI 登录共用。</summary>
+    internal static async Task<(string Url, string QrcodeKey)> GenerateWebQrLoginAsync()
+    {
+        AuthenticatedWebProfileStore.Configure(Program.APP_DIR);
+        string loginUrl = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate?source=main-fe-header";
+        using var qrDocument = JsonDocument.Parse(await HTTPUtil.GetAuthenticatedWebSourceAsync(loginUrl));
+        string url = BilibiliApi.ReadPayload(qrDocument.RootElement, "获取登录二维码").GetProperty("url").ToString();
+        string qrcodeKey = GetQueryString("qrcode_key", url);
+        return (url, qrcodeKey);
+    }
 }

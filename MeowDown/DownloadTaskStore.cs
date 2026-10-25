@@ -11,16 +11,18 @@ internal sealed class DownloadTaskStore
     private readonly List<DownloadTask> finishedTasks = [];
     private readonly object stateLock = new();
     private readonly Func<long> getCurrentTimeSeconds;
-    private readonly int maxFinishedTasks;
-    private readonly long finishedRetentionSeconds;
+    private readonly Func<int> maxFinishedTasksProvider;
+    private readonly Func<long> finishedRetentionSecondsProvider;
 
-    internal DownloadTaskStore(Func<long>? getCurrentTimeSeconds = null, MeowDownServerOptions? options = null)
+    internal DownloadTaskStore(Func<long>? getCurrentTimeSeconds = null, MeowDownServerOptions? options = null,
+        Func<int>? maxFinishedTasks = null, Func<long>? finishedRetentionSeconds = null)
     {
         this.getCurrentTimeSeconds = getCurrentTimeSeconds
             ?? (() => DateTimeOffset.Now.ToUnixTimeSeconds());
-        options ??= new MeowDownServerOptions();
-        maxFinishedTasks = options.MaxFinishedTasks;
-        finishedRetentionSeconds = options.FinishedTaskRetentionSeconds;
+        var resolvedOptions = options ?? new MeowDownServerOptions();
+        // 提供者允许管理员在运行时修改保留配置（web-settings.json），默认回退到启动值
+        maxFinishedTasksProvider = maxFinishedTasks ?? (() => resolvedOptions.MaxFinishedTasks);
+        finishedRetentionSecondsProvider = finishedRetentionSeconds ?? (() => resolvedOptions.FinishedTaskRetentionSeconds);
     }
 
     public bool TryAddPending(DownloadTask task, int maxPendingTasks)
@@ -60,9 +62,9 @@ internal sealed class DownloadTaskStore
             }
 
             PruneFinishedLocked(finishedAt);
-            if (finishedTasks.Count > maxFinishedTasks)
+            if (finishedTasks.Count > maxFinishedTasksProvider())
             {
-                finishedTasks.RemoveRange(0, finishedTasks.Count - maxFinishedTasks);
+                finishedTasks.RemoveRange(0, finishedTasks.Count - maxFinishedTasksProvider());
             }
         }
     }
@@ -123,9 +125,19 @@ internal sealed class DownloadTaskStore
         }
     }
 
+    /// <summary>某用户当前等待中+执行中的任务数（Web 模式单用户任务上限依据）。</summary>
+    public int CountActiveForUser(string ownerId)
+    {
+        lock (stateLock)
+        {
+            return pendingTasks.Count(task => task.OwnerId == ownerId)
+                + runningTasks.Count(task => task.OwnerId == ownerId);
+        }
+    }
+
     private void PruneFinishedLocked(long nowSeconds)
     {
-        var oldestAllowed = nowSeconds - finishedRetentionSeconds;
+        var oldestAllowed = nowSeconds - finishedRetentionSecondsProvider();
         finishedTasks.RemoveAll(finishedTask => finishedTask.TaskFinishTime < oldestAllowed);
     }
 }

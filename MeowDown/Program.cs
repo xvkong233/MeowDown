@@ -312,11 +312,27 @@ partial class Program
         {
             Description = "gRPC响应最大解压大小(MiB)，默认64"
         };
+        var webDataDirOpt = new Option<string>("--web-data-dir")
+        {
+            Description = "Web服务数据目录（用户账号、绑定凭据、运行时配置），默认为程序目录下web-data"
+        };
+        var webAdminPasswordOpt = new Option<string>("--web-admin-password")
+        {
+            Description = "引导管理员账号的初始密码，未提供时生成随机密码并仅打印到日志一次"
+        };
+        var webSecureCookieOpt = new Option<bool>("--web-secure-cookie")
+        {
+            Description = "会话Cookie附加Secure属性（部署在HTTPS反向代理之后时使用）"
+        };
+        var webAllowRegistrationOpt = new Option<bool>("--web-allow-registration")
+        {
+            Description = "允许Web自助注册（初始开关，可被管理员在运行时关闭）"
+        };
         rootCommand.Add(serverTokenOpt);
         Command runAsServerCommand = new(
                 "serve",
                 "以服务器模式运行")
-            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverAllowPrivateCallbacksOpt, serverDownloadRootOpt, serverMaxQueueOpt, serverMaxFinishedOpt, serverFinishedRetentionHoursOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt };
+            { serverUrlOpt, serverAllowAria2cArgsOpt, serverAllowCustomOutputOpt, serverAllowCustomNetworkHostsOpt, serverAllowPrivateCallbacksOpt, serverDownloadRootOpt, serverMaxQueueOpt, serverMaxFinishedOpt, serverFinishedRetentionHoursOpt, allowInsecureTlsOpt, cookieAllowedDomainsOpt, maxGrpcMessageMbOpt, webDataDirOpt, webAdminPasswordOpt, webSecureCookieOpt, webAllowRegistrationOpt };
         runAsServerCommand.SetAction((Func<ParseResult, Task<int>>)(parseResult => CommandLineInvoker.RunGuarded(() =>
         {
             var defaults = new MeowDownServerOptions();
@@ -346,6 +362,20 @@ partial class Program
                     ? finishedRetentionHours * 60L * 60L
                     : defaults.FinishedTaskRetentionSeconds
             };
+            // Web 配置启动优先级：默认值 < web-settings.json < 命令行显式给出的值
+            var webLaunch = new WebLaunchOptions
+            {
+                WebDataDir = string.IsNullOrWhiteSpace(parseResult.GetValue(webDataDirOpt)) ? null : parseResult.GetValue(webDataDirOpt),
+                WebAdminPassword = string.IsNullOrEmpty(parseResult.GetValue(webAdminPasswordOpt)) ? null : parseResult.GetValue(webAdminPasswordOpt),
+                WebSecureCookie = parseResult.GetValue(webSecureCookieOpt),
+                WebAllowRegistration = parseResult.GetResult(webAllowRegistrationOpt) is { Implicit: false } ? true : null,
+                MaxQueueLengthOverride = maxQueueLength > 0 && parseResult.GetResult(serverMaxQueueOpt) is { Implicit: false }
+                    ? maxQueueLength : null,
+                MaxFinishedTasksOverride = maxFinishedTasks > 0 && parseResult.GetResult(serverMaxFinishedOpt) is { Implicit: false }
+                    ? maxFinishedTasks : null,
+                FinishedTaskRetentionSecondsOverride = finishedRetentionHours > 0 && parseResult.GetResult(serverFinishedRetentionHoursOpt) is { Implicit: false }
+                    ? finishedRetentionHours * 60L * 60L : null,
+            };
             StartServer(
                 listenUrl,
                 apiToken,
@@ -353,7 +383,8 @@ partial class Program
                 allowInsecureTls,
                 cookieAllowedDomains,
                 maxGrpcMessageMb,
-                parseResult.GetValue(CommandLineInvoker.Debug));
+                parseResult.GetValue(CommandLineInvoker.Debug),
+                webLaunch);
             return Task.FromResult(0);
         })));
         rootCommand.Add(runAsServerCommand);
@@ -391,7 +422,8 @@ partial class Program
         bool allowInsecureTls,
         string? cookieAllowedDomains,
         int maxGrpcMessageMb,
-        bool debug)
+        bool debug,
+        WebLaunchOptions? webLaunch = null)
     {
         Config.DEBUG_LOG = ServerDebug = debug;
         var defaultListenUrl = "http://127.0.0.1:23333";
@@ -399,7 +431,7 @@ partial class Program
         ApplyServeSecurityOptions(allowInsecureTls, cookieAllowedDomains, maxGrpcMessageMb);
         //检测更新
         _ = CheckUpdateAsync();
-        var server = new MeowDownApiServer(serverOptions);
+        var server = new MeowDownApiServer(serverOptions, webLaunch);
         server.SetUpServer();
         server.Run(actualListenUrl, apiToken);
     }
