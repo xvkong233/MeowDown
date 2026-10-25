@@ -477,7 +477,9 @@ details.adv .adv-body .span2 { grid-column: 1 / -1; }
   border-radius: var(--radius);
   border: 1px solid var(--border);
 }
-.qr-frame img { display: block; width: 208px; height: 208px; image-rendering: pixelated; }
+/* 服务端出图为 1-bit 黑白 PNG（520px ≈ 65 模块 × 8px）：按整半比例 260px 平滑缩放；
+   不能用 pixelated——0.4 倍最近邻降采样会抽稀码点，导致二维码扫不出来 */
+.qr-frame img { display: block; width: 260px; height: auto; }
 .qr-mask {
   position: absolute; inset: 12px;
   background: rgba(255, 255, 255, .94);
