@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Threading;
 
 namespace MeowDown;
 
@@ -15,6 +16,7 @@ internal sealed class WebLoginRateLimiter
 
     private readonly ConcurrentDictionary<(string Ip, string Username), State> states = new();
     private readonly Func<long> nowSeconds;
+    private long nextSweepAt;
 
     public WebLoginRateLimiter(Func<long>? nowSeconds = null)
     {
@@ -26,6 +28,7 @@ internal sealed class WebLoginRateLimiter
     public bool IsLocked(string ip, string username)
     {
         var now = nowSeconds();
+        SweepIfDue(now);
         if (!states.TryGetValue(Key(ip, username), out var state))
         {
             return false;
@@ -36,7 +39,8 @@ internal sealed class WebLoginRateLimiter
             return true;
         }
 
-        if (state.LockedUntil != 0)
+        // 过期的锁定与滑出统计窗口的失败计数条目直接移除，避免匿名请求造成字典无界增长
+        if (state.LockedUntil != 0 || now - state.WindowStart > WindowSeconds)
         {
             states.TryRemove(Key(ip, username), out _);
         }
@@ -47,6 +51,7 @@ internal sealed class WebLoginRateLimiter
     public void RecordFailure(string ip, string username)
     {
         var now = nowSeconds();
+        SweepIfDue(now);
         states.AddOrUpdate(Key(ip, username),
             _ => new State(1, now, 0),
             (_, state) =>
@@ -63,6 +68,30 @@ internal sealed class WebLoginRateLimiter
     {
         states.TryRemove(Key(ip, username), out _);
     }
+
+    /// <summary>
+    /// 每过一个统计窗口做一次全量清扫，清掉已过期或滑出窗口的条目——
+    /// 否则未达锁定阈值的随机「IP+用户名」条目永不淘汰，可被匿名请求撑到无界。
+    /// </summary>
+    private void SweepIfDue(long now)
+    {
+        var due = Interlocked.Read(ref nextSweepAt);
+        if (now < due)
+        {
+            return;
+        }
+        if (Interlocked.CompareExchange(ref nextSweepAt, now + WindowSeconds, due) != due)
+        {
+            return;
+        }
+        foreach (var (key, state) in states)
+        {
+            if (state.LockedUntil != 0 ? state.LockedUntil <= now : now - state.WindowStart > WindowSeconds)
+            {
+                states.TryRemove(key, out _);
+            }
+        }
+    }
 }
 
 /// <summary>注册限流：每 IP 每小时最多 5 次。</summary>
@@ -75,6 +104,7 @@ internal sealed class WebRegisterRateLimiter
 
     private readonly ConcurrentDictionary<string, State> states = new(StringComparer.Ordinal);
     private readonly Func<long> nowSeconds;
+    private long nextSweepAt;
 
     public WebRegisterRateLimiter(Func<long>? nowSeconds = null)
     {
@@ -85,11 +115,33 @@ internal sealed class WebRegisterRateLimiter
     public bool TryAcquire(string ip)
     {
         var now = nowSeconds();
+        SweepIfDue(now);
         var state = states.AddOrUpdate(ip,
             _ => new State(1, now),
             (_, existing) => now - existing.WindowStart >= WindowSeconds
                 ? new State(1, now)
                 : existing with { Count = existing.Count + 1 });
         return state.Count <= MaxPerHour;
+    }
+
+    /// <summary>每过一个窗口做一次全量清扫，清掉已滑出窗口的条目，避免匿名请求把字典撑到无界。</summary>
+    private void SweepIfDue(long now)
+    {
+        var due = Interlocked.Read(ref nextSweepAt);
+        if (now < due)
+        {
+            return;
+        }
+        if (Interlocked.CompareExchange(ref nextSweepAt, now + WindowSeconds, due) != due)
+        {
+            return;
+        }
+        foreach (var (ip, state) in states)
+        {
+            if (now - state.WindowStart >= WindowSeconds)
+            {
+                states.TryRemove(ip, out _);
+            }
+        }
     }
 }

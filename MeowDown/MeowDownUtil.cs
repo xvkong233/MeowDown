@@ -237,6 +237,26 @@ static partial class MeowDownUtil
             && BilibiliWebDomains.Any(domain => uri.Host.Equals(domain, StringComparison.OrdinalIgnoreCase)
                 || uri.Host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
 
+    /// <summary>
+    /// 服务器/Web 任务接受的输入形态：B站链接或 av/bv/ep/ss/md/cheese 编号，
+    /// 与 <see cref="GetAvIdAsync"/> 实际支持的非 URL 分支一致；其余输入应在校验期拒绝（400），
+    /// 而不是放行到上游后以「输入有误」的 upstream_error 收场。
+    /// </summary>
+    internal static bool IsSupportedBiliInput(string input)
+    {
+        if (input.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            return IsBilibiliUrl(input);
+        }
+        return (input.StartsWith("cheese/", StringComparison.Ordinal) && input.Length > 7)
+            || (input.Length > 2
+                && (input.StartsWith("av", StringComparison.OrdinalIgnoreCase)
+                    || input.StartsWith("bv", StringComparison.OrdinalIgnoreCase)
+                    || input.StartsWith("ep", StringComparison.Ordinal)
+                    || input.StartsWith("ss", StringComparison.Ordinal)
+                    || input.StartsWith("md", StringComparison.Ordinal)));
+    }
+
     public static string FormatFileSize(double fileSize)
     {
         return fileSize switch

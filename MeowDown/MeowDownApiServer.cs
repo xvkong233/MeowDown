@@ -221,14 +221,17 @@ public class MeowDownApiServer
         app.Run(url);
     }
 
-    private bool TryEnqueueDownloadTask(ServeRequestOptions request, DownloadTask task)
+    private bool TryEnqueueDownloadTask(ServeRequestOptions request, DownloadTask task,
+        string? ownerId = null, string? ownerName = null)
     {
         if (!taskStore.TryAddPending(task, SettingsStore.Snapshot().MaxQueueLength))
         {
             return false;
         }
 
-        pendingTasks.Enqueue(new QueuedDownloadTask(request, task));
+        // ownerId/ownerName 必须随任务入队：出队执行时据此注入该用户绑定的B站凭据，
+        // 丢失会导致 Web 任务恒以无凭据（未登录）状态运行
+        pendingTasks.Enqueue(new QueuedDownloadTask(request, task, ownerId, ownerName));
         pendingTaskSignal.Release();
         return true;
     }
@@ -241,7 +244,7 @@ public class MeowDownApiServer
         {
             return false;
         }
-        return TryEnqueueDownloadTask(request, task);
+        return TryEnqueueDownloadTask(request, task, ownerId, ownerName);
     }
 
     /// <summary>

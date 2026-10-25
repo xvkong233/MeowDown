@@ -4,6 +4,8 @@
 
 如果以服务器模式启动MeowDown，MeowDown会在本地启动一个http server，该服务器有以下API：
 
+> 本文仅覆盖旧版 Token 鉴权 API（`/get-tasks*`、`/add-task`、`/remove-finished*`）；多用户 Web 服务（登录/注册、在线解析、B站绑定、管理员面板）的 API 契约以 [docs/web-api.md](./docs/web-api.md) 为准。
+
 默认监听地址为`http://127.0.0.1:23333`。监听本机地址时默认不需要Token；监听`0.0.0.0`或其他非本机地址时会启用API Token。Token可以通过`--api-token`或`MeowDown.config`配置，未配置时启动会自动生成。
 
 需要Token时，请在请求头中携带以下任意一种：

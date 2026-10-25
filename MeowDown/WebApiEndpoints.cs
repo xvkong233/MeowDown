@@ -88,6 +88,15 @@ internal static class WebApiEndpoints
                 return;
             }
 
+            if (user is not null && !IsAnonymousPath(path))
+            {
+                // 滑动续期的浏览器侧半边：认证通过后按当前会话有效期重发 Cookie，
+                // 避免活跃用户在登录时固化的 Max-Age 到期后被强制登出（契约：每次认证请求刷新）。
+                var lifetimeSeconds = web.Settings.Snapshot().SessionLifetimeHours * 3600L;
+                context.Response.Cookies.Append(WebSessionStore.CookieName, sessionId!,
+                    SessionCookieOptions(context, web.Launch, lifetimeSeconds));
+            }
+
             if (user is not null && path.StartsWithSegments("/api/admin") && user.Role != WebUserRole.Admin)
             {
                 await WriteError(context, StatusCodes.Status403Forbidden, "forbidden", "需要管理员角色");
@@ -214,7 +223,7 @@ internal static class WebApiEndpoints
                 snapshot.Running.Where(task => task.OwnerId == user.Id).ToList(),
                 snapshot.Finished.Where(task => task.OwnerId == user.Id).ToList());
         }
-        return Task.FromResult<IResult>(Results.Json(snapshot, WebJsonContext.Default.DownloadTaskCollection));
+        return Task.FromResult<IResult>(Results.Json(snapshot, WebTaskJson.Options));
     }
 
     private static Task<IResult> GetTaskAsync(HttpContext context, MeowDownApiServer server, WebServices web, string id)
@@ -225,7 +234,7 @@ internal static class WebApiEndpoints
         {
             return Task.FromResult<IResult>(Error(StatusCodes.Status404NotFound, "not_found", "任务不存在"));
         }
-        return Task.FromResult<IResult>(Results.Json(task, WebJsonContext.Default.DownloadTask));
+        return Task.FromResult<IResult>(Results.Json(task, WebTaskJson.Options));
     }
 
     private static Task<IResult> RemoveFinishedAsync(HttpContext context, MeowDownApiServer server, WebServices web)
@@ -430,7 +439,7 @@ internal static class WebApiEndpoints
             return Error(StatusCodes.Status400BadRequest, "bad_request", "Url不能为空");
         }
         var url = body.Url.Trim();
-        if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !MeowDownUtil.IsBilibiliUrl(url))
+        if (!MeowDownUtil.IsSupportedBiliInput(url))
         {
             return Error(StatusCodes.Status400BadRequest, "validation_failed", "Url只能是B站链接或av/BV/ep/ss等编号");
         }
@@ -448,12 +457,19 @@ internal static class WebApiEndpoints
                 Url = url,
                 Cookie = binding?.Cookie ?? "",
                 SuppressLocalCredentials = true,
+                // parse 只取元数据、不产生下载与混流：跳过 muxer 二进制探测，
+                // 避免本机缺 ffmpeg 时未触达B站就抛本地环境错误并被误报为 upstream_error。
+                SkipMux = true,
             };
-            await web.CredentialGate.WaitAsync();
+            // 排队等待与上游请求共用 30 秒预算并响应断连：下载任务持有凭据闸门期间，解析不再无限挂起
+            if (!await web.CredentialGate.WaitAsync(ParseTimeout, context.RequestAborted))
+            {
+                return Error(StatusCodes.Status504GatewayTimeout, "upstream_timeout", "解析排队超时（30秒），请稍后重试");
+            }
             try
             {
                 var firstEncoding = Program.SetUpWork(option).firstEncoding;
-                var (fetchedAid, vInfo, _) = await Program.GetVideoInfoAsync(option).WaitAsync(ParseTimeout);
+                var (fetchedAid, vInfo, _) = await Program.GetVideoInfoAsync(option).WaitAsync(ParseTimeout, context.RequestAborted);
                 if (vInfo is SpaceVideoInfo)
                 {
                     return Error(StatusCodes.Status400BadRequest, "validation_failed",
@@ -471,6 +487,11 @@ internal static class WebApiEndpoints
         catch (TimeoutException)
         {
             return Error(StatusCodes.Status504GatewayTimeout, "upstream_timeout", "解析超时（30秒）");
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // 客户端已断开：交还框架按中止请求处理，不误报为上游错误
+            throw;
         }
         catch (Exception e)
         {
@@ -632,20 +653,21 @@ internal static class WebApiEndpoints
             }
         }
 
-        var removesActiveAdmin = target.Role == WebUserRole.Admin && target.Disabled == false
-            && (newRole == WebUserRole.User || body.Disabled == true);
-        if (removesActiveAdmin && CountActiveAdmins(web.Users, excludingUserId: target.Id) == 0)
+        // 检查+修改在用户库内部锁内原子执行：两个管理员并发互相降级/停用时，
+        // 不会各自把对方视作幸存管理员而双双通过，导致0个可用管理员且无法经API恢复
+        var outcome = web.Users.TryUpdateRoleOrDisabled(target.Id, newRole, body.Disabled);
+        if (outcome == WebAdminGuardResult.NotFound)
+        {
+            return Error(StatusCodes.Status404NotFound, "not_found", "用户不存在");
+        }
+        if (outcome == WebAdminGuardResult.LastAdminConflict)
         {
             return Error(StatusCodes.Status409Conflict, "conflict", "不能停用或降级最后一个管理员");
         }
-
-        if (newRole is { } role) target.Role = role;
-        if (body.Disabled is { } disabled)
+        if (body.Disabled == true)
         {
-            target.Disabled = disabled;
-            if (disabled) web.Sessions.RevokeAllForUser(target.Id);
+            web.Sessions.RevokeAllForUser(target.Id);
         }
-        web.Users.Update(target);
         return Results.Json(BuildAdminUserResponse(web, target),
             WebJsonContext.Default.WebAdminUserResponse);
     }
@@ -662,8 +684,12 @@ internal static class WebApiEndpoints
         {
             return Task.FromResult(Error(StatusCodes.Status404NotFound, "not_found", "用户不存在"));
         }
-        if (target.Role == WebUserRole.Admin && target.Disabled == false
-            && CountActiveAdmins(web.Users, excludingUserId: target.Id) == 0)
+        var outcome = web.Users.TryRemoveWithAdminGuard(id);
+        if (outcome == WebAdminGuardResult.NotFound)
+        {
+            return Task.FromResult(Error(StatusCodes.Status404NotFound, "not_found", "用户不存在"));
+        }
+        if (outcome == WebAdminGuardResult.LastAdminConflict)
         {
             return Task.FromResult(Error(StatusCodes.Status409Conflict, "conflict", "不能删除最后一个管理员"));
         }
@@ -671,7 +697,6 @@ internal static class WebApiEndpoints
         // 级联：删除B站凭据文件、吊销全部会话；任务按正常保留策略自然淘汰
         web.Bindings.Delete(target.Id);
         web.Sessions.RevokeAllForUser(target.Id);
-        web.Users.Remove(target.Id);
         return Task.FromResult<IResult>(Results.NoContent());
     }
 
@@ -724,9 +749,6 @@ internal static class WebApiEndpoints
         web.Settings.ApplyPatch(body);
         return Results.Json(BuildConfigResponse(server, web), WebJsonContext.Default.WebConfigResponse);
     }
-
-    private static int CountActiveAdmins(WebUserStore users, string excludingUserId)
-        => users.All().Count(user => user.Role == WebUserRole.Admin && !user.Disabled && user.Id != excludingUserId);
 
     #endregion
 

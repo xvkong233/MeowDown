@@ -32,8 +32,10 @@ public sealed class DownloadTask
 
     // Web 模式任务归属（旧 Token API 的任务为 null，为纯增量字段）
     [JsonInclude]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OwnerId { get; }
     [JsonInclude]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? OwnerName { get; }
 
     internal static double CalculateDownloadSpeed(double totalDownloadedBytes, long startedAt, long finishedAt)

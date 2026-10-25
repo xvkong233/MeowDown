@@ -17,6 +17,14 @@ public enum WebUserRole
     Admin,
 }
 
+/// <summary>带「最后一个可用管理员」保护的变更结果。</summary>
+internal enum WebAdminGuardResult
+{
+    Ok,
+    NotFound,
+    LastAdminConflict,
+}
+
 /// <summary>
 /// Web 用户账号（含口令哈希与角色），持久化到 &lt;web-data-dir&gt;/web-users.json。
 /// 文件经 WritePrivateFile 原子写入并收紧权限；用户名唯一按大小写不敏感比较、原样存储。
@@ -106,6 +114,61 @@ internal sealed class WebUserStore
         lock (stateLock) PersistLocked();
     }
 
+    /// <summary>
+    /// 原子应用角色/停用变更：检查与修改在同一把用户库锁内完成，
+    /// 防止「最后一个可用管理员」保护被并发请求绕过（两个管理员互相降级）。
+    /// 用户不存在返回 <see cref="WebAdminGuardResult.NotFound"/>（不修改）；
+    /// 变更将使可用管理员归零返回 <see cref="WebAdminGuardResult.LastAdminConflict"/>（不修改）。
+    /// </summary>
+    public WebAdminGuardResult TryUpdateRoleOrDisabled(string userId, WebUserRole? newRole, bool? disabled)
+    {
+        lock (stateLock)
+        {
+            var target = FindByIdLocked(userId);
+            if (target is null)
+            {
+                return WebAdminGuardResult.NotFound;
+            }
+
+            var removesActiveAdmin = target.Role == WebUserRole.Admin && !target.Disabled
+                && ((newRole is { } demotedRole && demotedRole != WebUserRole.Admin) || disabled == true);
+            if (removesActiveAdmin && !HasActiveAdminLocked(excludingUserId: target.Id))
+            {
+                return WebAdminGuardResult.LastAdminConflict;
+            }
+
+            if (newRole is { } role) target.Role = role;
+            if (disabled is { } value) target.Disabled = value;
+            PersistLocked();
+            return WebAdminGuardResult.Ok;
+        }
+    }
+
+    /// <summary>
+    /// 原子删除用户，同样带「最后一个可用管理员」保护（检查+删除同锁）。
+    /// </summary>
+    public WebAdminGuardResult TryRemoveWithAdminGuard(string userId)
+    {
+        lock (stateLock)
+        {
+            var target = FindByIdLocked(userId);
+            if (target is null)
+            {
+                return WebAdminGuardResult.NotFound;
+            }
+
+            if (target.Role == WebUserRole.Admin && !target.Disabled
+                && !HasActiveAdminLocked(excludingUserId: userId))
+            {
+                return WebAdminGuardResult.LastAdminConflict;
+            }
+
+            users.RemoveAll(user => user.Id == userId);
+            PersistLocked();
+            return WebAdminGuardResult.Ok;
+        }
+    }
+
     public void UpdatePasswordHash(WebUser user, string newHash,
         bool markChangeRequired = false, bool clearChangeRequired = false)
     {
@@ -161,6 +224,12 @@ internal sealed class WebUserStore
 
     private WebUser? FindByUsernameLocked(string username)
         => users.FirstOrDefault(user => string.Equals(user.Username, username, StringComparison.OrdinalIgnoreCase));
+
+    private WebUser? FindByIdLocked(string id)
+        => users.FirstOrDefault(user => user.Id == id);
+
+    private bool HasActiveAdminLocked(string excludingUserId)
+        => users.Any(user => user.Role == WebUserRole.Admin && !user.Disabled && user.Id != excludingUserId);
 
     private void PersistLocked()
         => WritePrivateFile(filePath, Encoding.UTF8.GetBytes(

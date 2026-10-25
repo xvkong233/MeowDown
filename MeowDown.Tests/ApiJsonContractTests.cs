@@ -47,6 +47,36 @@ public class ApiJsonContractTests
     }
 
     [Fact]
+    public void WebTaskContract_KeepsLegacyFieldsPascalCaseAndOwnerFieldsCamelCase()
+    {
+        // 契约 web-api.md：/api/tasks 既有 DownloadTask 字段保持 PascalCase，新增 taskId/ownerId/ownerName 为 camelCase
+        var task = new DownloadTask("task-42", "1", "fixture", 100, "u_9f8a", "alice");
+        task.AddSavePath("file.mp4");
+        task.Finish(102, true);
+
+        var json = JsonSerializer.Serialize(task, WebTaskJson.Options);
+
+        var node = JsonNode.Parse(json)!;
+        Assert.Equal("task-42", (string?)node["taskId"]);
+        Assert.Equal("u_9f8a", (string?)node["ownerId"]);
+        Assert.Equal("alice", (string?)node["ownerName"]);
+        Assert.Equal(100, (long?)node["TaskCreateTime"]);
+        Assert.Equal(102, (long?)node["TaskFinishTime"]);
+        Assert.Equal(1, (double?)node["Progress"]);
+        Assert.True((bool?)node["IsSuccessful"]);
+        Assert.Equal("file.mp4", (string?)node?["SavePaths"]?[0]);
+    }
+
+    [Fact]
+    public void WebTaskContract_CollectionKeysStayCamelCase()
+    {
+        var json = JsonSerializer.Serialize(new DownloadTaskCollection([], [], []), WebTaskJson.Options);
+
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("""{"pending":[],"running":[],"finished":[]}"""),
+            JsonNode.Parse(json)));
+    }
+
+    [Fact]
     public async Task RequestBinding_PreservesDefaultsAndCallbackOptions()
     {
         using var body = Body("""{"Url":"fixture","AudioOnly":true,"CallBackWebHook":"https://example.test/callback"}""");

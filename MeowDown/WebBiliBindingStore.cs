@@ -51,8 +51,15 @@ internal sealed class WebBiliBindingStore
     public bool Exists(string userId) => IsSafeUserId(userId) && File.Exists(PathFor(userId));
 
     public void Save(string userId, WebBiliBinding binding)
-        => WritePrivateFile(PathFor(userId), Encoding.UTF8.GetBytes(
+    {
+        // 写入路径与 Load/Exists/Delete 同等设防：userId 拼进路径前先做防御校验（防御纵深）
+        if (!IsSafeUserId(userId))
+        {
+            throw new ArgumentException("非法的userId，拒绝写入B站凭据文件", nameof(userId));
+        }
+        WritePrivateFile(PathFor(userId), Encoding.UTF8.GetBytes(
             JsonSerializer.Serialize(binding, WebStorageJsonContext.Default.WebBiliBinding)));
+    }
 
     /// <summary>删除凭据文件；文件本就不存在时同样返回 true（幂等）。</summary>
     public bool Delete(string userId)

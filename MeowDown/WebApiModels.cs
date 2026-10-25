@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace MeowDown;
 
@@ -131,6 +133,36 @@ internal sealed record WebConfigResponse(WebConfigWritable Writable, WebConfigRe
 [JsonSerializable(typeof(WebConfigResponse))]
 internal partial class WebJsonContext : JsonSerializerContext
 {
+}
+
+/// <summary>
+/// /api/tasks 响应的序列化选项：既有 DownloadTask 字段保持 PascalCase（契约 web-api.md「进度查询即读取
+/// Progress、DownloadSpeed…」与前端 wwwroot/js/views/tasks.js 均按 PascalCase 读取），
+/// 仅 Web 新增的 taskId/ownerId/ownerName 保持 camelCase；其余 Web 响应仍直接用 WebJsonContext（全 camelCase）。
+/// </summary>
+internal static class WebTaskJson
+{
+    internal static readonly JsonSerializerOptions Options = new()
+    {
+        // 经自定义 options 解析源生成元数据时，上下文特性上的命名策略不会自动带上，需在此显式声明
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        TypeInfoResolver = WebJsonContext.Default.WithAddedModifier(typeInfo =>
+        {
+            if (typeInfo.Type != typeof(DownloadTask))
+            {
+                return;
+            }
+            foreach (var property in typeInfo.Properties)
+            {
+                if (property.Name is "taskId" or "ownerId" or "ownerName" || property.Name.Length == 0)
+                {
+                    continue;
+                }
+                // camelCase 之上把既有字段的首字母还原为大写即回到 PascalCase CLR 名
+                property.Name = char.ToUpperInvariant(property.Name[0]) + property.Name[1..];
+            }
+        })
+    };
 }
 
 /// <summary>本地存储文件（web-users.json / web-settings.json / bili/*.json）的序列化契约（camelCase）。</summary>

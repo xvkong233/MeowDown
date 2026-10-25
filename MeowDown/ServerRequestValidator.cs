@@ -23,10 +23,15 @@ internal class ServerRequestValidator
         }
 
         req.Url = req.Url.Trim();
-        var url = req.Url;
-        if (url.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !MeowDownUtil.IsBilibiliUrl(url))
+        if (!MeowDownUtil.IsSupportedBiliInput(req.Url))
         {
             return "Url只能是B站链接或av/BV/ep/ss等编号";
+        }
+
+        // 分P语法在提交期校验（契约：非法返回400），越界仍由执行期按实际分P数判定
+        if (PageSelectionParser.ValidateSyntax(req.SelectPage) is { } pageSelectionError)
+        {
+            return pageSelectionError;
         }
 
         if (!string.IsNullOrWhiteSpace(req.FFmpegPath) || !string.IsNullOrWhiteSpace(req.Mp4boxPath)

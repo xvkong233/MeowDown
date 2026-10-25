@@ -8,6 +8,52 @@ internal static class PageSelectionParser
     private static readonly HashSet<string> LastPageAliases =
         new(StringComparer.OrdinalIgnoreCase) { "LAST", "NEW", "LATEST" };
 
+    /// <summary>
+    /// 仅校验分P选择语法（页码、范围、逗号列表、LAST/LATEST/NEW 别名与 ALL），
+    /// 供任务提交期使用；页码是否越界需分P总数，仍由执行期 <see cref="Parse"/> 判定。
+    /// 语法非法时返回描述文本，合法（含留空=自动选择）返回 null。
+    /// </summary>
+    internal static string? ValidateSyntax(string? selection)
+    {
+        if (string.IsNullOrWhiteSpace(selection))
+        {
+            return null;
+        }
+
+        foreach (var rawToken in selection.Split(','))
+        {
+            var token = rawToken.Trim();
+            if (token.Length == 0)
+            {
+                return InvalidSyntax(selection);
+            }
+            if (LastPageAliases.Contains(token))
+            {
+                continue;
+            }
+            if (token.Contains('-'))
+            {
+                var range = token.Split('-', StringSplitOptions.TrimEntries);
+                if (range.Length != 2
+                    || !TryParsePageNumber(range[0], out var start)
+                    || !TryParsePageNumber(range[1], out var end)
+                    || start > end)
+                {
+                    return InvalidSyntax(selection);
+                }
+                continue;
+            }
+            if (!TryParsePageNumber(token, out _))
+            {
+                return InvalidSyntax(selection);
+            }
+        }
+        return null;
+    }
+
+    private static string InvalidSyntax(string selection)
+        => $"分P参数无效: {selection}。请输入页码、范围（如 5-8）、逗号列表、LAST/LATEST/NEW 或 ALL。";
+
     internal static List<string>? Parse(string selection, int pageCount)
     {
         if (pageCount <= 0)
