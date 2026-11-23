@@ -1,4 +1,4 @@
-# 分支维护说明（own/v2）
+# 分支维护说明（main）
 
 本分支是我们自维护的整合分支，产品名 **MeowDown**（2026-10-17 由 BBDownT 更名而来，见文末"更名记录"）。策略：**以 LOVAHE/BBDownT 的 v2 分支为基线，吸收 MOPELotus/BBDown 的修补，保留对 nilaoda/BBDown 上游的追踪能力**。
 
@@ -29,7 +29,7 @@ BBDownT v2 还额外修复了上游审计中确认的多处问题（混流退出
 
 ## 与基线的同步策略
 
-1. 定期 `git fetch fork-lovahe`，将其 `v2` 的新提交合并进本分支（本分支 tracking `fork-lovahe/v2`，直接 `git merge` 即可）。
+1. 定期 `git fetch fork-lovahe`，将其 `v2` 的新提交合并进本分支（`git merge fork-lovahe/v2`；2026-10-25 起开发分支为 `main`，own/v2 已并入并停用）。
 2. MOPELotus 若有 BBDownT 未覆盖的新修补，逐个 cherry-pick 并验证。
 3. 上游已归档，仅在需要对照协议实现时查阅 `upstream-master`。
 4. 本分支自己的改动独立成 commit，不与上游提交混写，便于 rebase。
@@ -47,7 +47,16 @@ BBDownT v2 还额外修复了上游审计中确认的多处问题（混流退出
 
 ## CI 与发布（2026-10-18）
 
-仓库：`github.com/xvkong233/MeowDown`（public），默认分支 `main`（本地分支 `own/v2` 推送过去）。
+仓库：`github.com/xvkong233/MeowDown`（public），默认分支 `main`（本地分支 `main` 推送过去；2026-10-25 起 own/v2 已快进并入 `main` 并停用，见下方"Web 服务化"）。
+
+## Web 服务化（2026-10-25）
+
+在 `serve` 模式上新增多用户 Web 服务（提交 `7847c23`/`c3115b7`/`9d846c3`/`57d1b28` 及后续修复）：
+
+- API 契约：[docs/web-api.md](./docs/web-api.md)——会话认证（PBKDF2）、B站扫码绑定（按用户隔离凭据）、在线解析、任务接口、管理员配置/用户管理；旧 Token API 零变更。
+- 自包含前端：`MeowDown/wwwroot/`（原生 ES 模块，无构建链、无 CDN 依赖）。
+- 容器化：多阶段 `Dockerfile`（含 ffmpeg）+ `docker-compose.yml`，数据卷 `./data/`。
+- 运行时数据：`web-users.json` / `web-data/bili/<userId>.json` / `web-settings.json`，均经 `WritePrivateFile` 原子落盘。
 
 - **Release 工作流**（`release.yml`）：仅 `v*` 标签推送触发；先校验标签与 `MeowDown/MeowDown.csproj` 的 `Version` 严格一致（`v` + 版本号），再复用 `build_latest.yml` 出六平台 AOT 单文件产物（`MeowDown_{win,linux,osx}-{x64,arm64}[.exe]`，linux 在 18.04 容器中构建保 glibc 兼容），最后直接创建**正式发布**（不再停留草稿；标签含 beta/rc 后缀自动标记 prerelease；已发布的 release 拒绝覆盖；遗留草稿自动补资产转正）。发版即改版本号：先改 csproj `Version`，再打同名标签。
 - **自更新**：`MeowDownSelfUpdater` 的 feed 与下载 URL 已指向本仓库，`MeowDown --update` 走本仓库 Release 资产。

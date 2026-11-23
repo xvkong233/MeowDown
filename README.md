@@ -2,7 +2,7 @@
 > 本项目仅供个人学习、研究和非商业性用途。使用本工具时，需自行确保遵守相关法律法规，特别是与版权相关的法律条款。开发者不对因使用本工具而产生的任何版权纠纷或法律责任承担责任。请谨慎使用，并仅在有合法授权的情况下使用相关内容。
 
 # MeowDown
-一个命令行式哔哩哔哩下载器. Bilibili Downloader.
+一个命令行 / 多用户 Web 双形态的哔哩哔哩下载器. Bilibili Downloader (CLI & Web).
 
 > 传承链路：[BBDown](https://github.com/nilaoda/BBDown)（nilaoda，已归档）→ [BBDownT](https://github.com/LOVAHE/BBDownT)（LOVAHE）→ **MeowDown**（本分支）。MeowDown 以 BBDownT v2 为基线整合维护，项目名、命令和文档以 `MeowDown` 为准；向上游两代作者致谢。
 
@@ -13,7 +13,17 @@
 * 杜比视界：ffmpeg5.0以上或新版mp4box.
 
 # 快速开始
-从 [GitHub Releases](https://github.com/xvkong233/MeowDown/releases) 下载对应平台的压缩包，解压后即可直接运行。
+**Web 服务（多用户在线解析下载，推荐）**：在仓库根目录一键 Docker 部署，浏览器直接使用——
+
+```bash
+docker compose up -d --build
+# 取管理员初始密码（仅首次启动打印一次）
+docker compose logs meowdown | grep "已创建Web管理员账号"
+```
+
+启动后访问 `http://localhost:23333`；完整说明（默认账号、数据持久化、HTTPS）见下方 [Web 服务部署](#web-服务部署)。
+
+**命令行**：从 [GitHub Releases](https://github.com/xvkong233/MeowDown/releases) 下载对应平台的压缩包，解压后即可直接运行。
 
 独立二进制可运行 `MeowDown --update`（改名后如 `bbd --update`）更新到最新正式版。
 
@@ -137,7 +147,7 @@ Commands:
   login      通过APP扫描二维码以登录您的WEB账号
   logintv    通过APP扫描二维码以登录您的TV账号
   loginintl  登录国际站 BiliBili（Bstation），默认使用国际版 App 扫码
-  serve      以服务器模式运行
+  serve      以服务器模式运行（内置多用户 Web 服务，见下方 [Web 服务部署](#web-服务部署)）
 ```
 
 # 功能
@@ -158,6 +168,14 @@ Commands:
 - [x] **支持8K/HDR/HDR Vivid/杜比视界/杜比全景声下载**
 - [x] 自定义存储文件名
 - [x] 自动刷新cookie
+
+**Web 服务（serve 模式）**
+- [x] 多用户注册/登录，角色 user/admin，口令 PBKDF2 加盐哈希、登录限流
+- [x] 网页在线解析与下载：分P/清晰度选择、任务进度实时轮询
+- [x] B站账号扫码绑定，凭据按用户隔离存储、按用户注入任务
+- [x] 管理员面板：用户增删改/停用/重置密码、运行时配置在线调整
+- [x] 同源托管自包含前端（无构建链、无 CDN 依赖），Docker Compose 一键部署
+- [x] 旧 Token API（`/get-tasks`、`/add-task` 等）保持不变，脚本集成不受影响
 
 # TODO
 - [ ] 支持更多自定义选项
@@ -492,6 +510,20 @@ docker compose logs meowdown | grep "已创建Web管理员账号"
 ```
 
 启动后浏览器访问 `http://<服务器IP>:23333` 即可使用。
+
+## serve 常用参数
+
+| 参数 | 说明 |
+| --- | --- |
+| `-l, --listen <url>` | 监听地址，如 `http://0.0.0.0:23333`（监听非本机地址时启用 API Token） |
+| `--server-download-root <dir>` | 下载根目录，Web 任务按用户存放于其下 `web-users/<userId>/` |
+| `--web-data-dir <dir>` | Web 数据目录（用户账号、绑定凭据、运行时配置），默认程序目录下 `web-data` |
+| `--web-admin-password <pwd>` | 引导管理员账号的初始密码；未提供时生成随机密码并仅打印到日志一次 |
+| `--web-allow-registration` | 允许 Web 自助注册（初始开关，管理员可在运行时关闭） |
+| `--web-secure-cookie` | 会话 Cookie 附加 `Secure`（部署在 HTTPS 反向代理之后时使用） |
+| `--server-max-queue` / `--server-max-finished` / `--server-finished-retention-hours` | 任务队列与已完成任务保留策略 |
+| `--server-allow-custom-output` 等 `--server-allow-*` | 安全门禁，默认全关：自定义输出、aria2c 参数、自定义 Host、内网回调均需显式允许 |
+| `--api-token <token>` | 旧 Token API 鉴权；监听非本机地址且未配置时自动生成 |
 
 ## 默认账号
 
